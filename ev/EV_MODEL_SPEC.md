@@ -11,7 +11,7 @@ It is intended to make integration behavior explicit and reduce ambiguity when w
 
 These modules estimate value and liquidity for a single `GrailedResultRow`:
 
-- `percentile calc v1.py` computes a weighted price distribution and edge metrics.
+- `percentile calc v1.py` computes a weighted price distribution, legacy edge metrics, and fee-adjusted profit metrics.
 - `sell probablity model.py` estimates short-horizon probability of sale.
 
 Both modules are pure compute modules with no network or database I/O.
@@ -108,15 +108,26 @@ Success shape:
 {
   "id": str,
   "name": str,
-  "cost": float,  # listing + shipping
+  "cost": float,                # legacy compatibility: listing + shipping
+  "listing_price": float,
+  "buy_shipping_cost": float,
+  "tax_amount": float,          # listing_price * 0.08875
+  "sales_tax_rate": float,      # 0.08875
+  "buy_cost": float,            # listing_price + tax_amount + buy_shipping_cost
   "dist": {
     "q10": float,
     "q50": float,
     "q90": float
   },
   "metrics": {
-    "edge_usd": float,        # q50 - cost
-    "percent_under": float,   # ((q50 - cost) / q50) * 100
+    "edge_usd": float,                       # legacy compatibility: q50 - cost
+    "percent_under": float,                  # legacy compatibility: ((q50 - cost) / q50) * 100
+    "expected_profit_grailed": float,         # grailed_net_payout - buy_cost
+    "expected_profit_off_grailed": float,     # q50 - buy_cost
+    "expected_profit_grailed_pct": float,     # expected_profit_grailed / buy_cost
+    "expected_profit_off_grailed_pct": float, # expected_profit_off_grailed / buy_cost
+    "grailed_total_fees": float,
+    "grailed_net_payout": float,
     "effective_n": float,
     "confidence_percentage": float,
     "num_valid_price_comps": int,
@@ -124,6 +135,10 @@ Success shape:
   }
 }
 ```
+
+Fee-adjusted profit uses `q50` as the expected resale price. Buy-side sales tax uses New York City sales tax (`0.08875`) and applies only to the live listing price, not shipping. Grailed resale uses domestic seller fees by default: `9%` commission plus `3.49% + $0.49` processing fee, with resale shipping charged defaulting to `0`.
+
+`edge_usd`, `percent_under`, and top-level `cost` are retained only for compatibility with existing callers. New ranking or display code should prefer `expected_profit_grailed` and `expected_profit_off_grailed`.
 
 No-data shape (current behavior):
 
