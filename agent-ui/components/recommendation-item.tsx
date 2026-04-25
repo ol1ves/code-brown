@@ -13,6 +13,7 @@ interface RecommendationItemProps {
 
 export function RecommendationItem({ item, rank, isHighlighted, highlightReason }: RecommendationItemProps) {
   const { item: rec, score, foundAcrossQueries } = item
+  const imageUrl = rec.live_listing.image_urls?.[0]
 
   return (
     <div
@@ -27,6 +28,21 @@ export function RecommendationItem({ item, rank, isHighlighted, highlightReason 
       )}>
         {rank}
       </div>
+
+      {imageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={imageUrl}
+          alt={rec.live_listing.name || rec.live_listing.id}
+          className="w-14 h-14 rounded object-cover shrink-0 bg-secondary"
+          loading="lazy"
+          onError={(e) => {
+            ;(e.currentTarget as HTMLImageElement).style.visibility = "hidden"
+          }}
+        />
+      ) : (
+        <div className="w-14 h-14 rounded bg-secondary shrink-0" />
+      )}
       
       <div className="flex-1 min-w-0">
         <div className="flex items-start justify-between gap-2">
