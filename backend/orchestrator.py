@@ -23,9 +23,15 @@ from shared.models import (
 )
 
 
-async def run_search(params: SearchParams) -> SearchResponse:
-    """Scrape, value, score, and rank. No persistence."""
-    scrape_result = await scrape(params, persist=False)
+async def run_search(params: SearchParams, *, persist: bool = True) -> SearchResponse:
+    """Scrape, value, score, and rank.
+
+    ``persist=True`` (default) writes fresh sold comparables through the
+    configured ``ListingStore`` so the scraper's cache keeps growing across
+    runs. Requires the store to be wired (see ``backend.main`` lifespan or
+    ``backend.cli``).
+    """
+    scrape_result = await scrape(params, persist=persist)
     scraped_at = scrape_result.metadata.scraped_at_unix
 
     ranked: list[RankedListing] = []
@@ -44,7 +50,10 @@ async def run_search(params: SearchParams) -> SearchResponse:
             )
         )
 
-    ranked.sort(key=lambda r: r.valuation["metrics"]["edge_usd"], reverse=True)
+    ranked.sort(
+        key=lambda r: r.sell_probability["p_sell"] * r.valuation["metrics"]["edge_usd"],
+        reverse=True,
+    )
 
     return SearchResponse(metadata=scrape_result.metadata, ranked=ranked)
 

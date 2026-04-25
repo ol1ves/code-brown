@@ -13,14 +13,18 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 
 from dotenv import load_dotenv
 
 from backend import orchestrator
+from ev.ev import set_store as set_ev_store
 from hype.cli import _print_summary as _print_hype_summary
 from scraper.cli import _prompt_params
+from scraper.scraper import set_store as set_scraper_store
 from shared.models import RankedListing, SearchResponse
+from shared.store import ListingStore
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -29,6 +33,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     search_parser = subparsers.add_parser("search", help="Run search flow")
     search_parser.add_argument("--json", action="store_true", help="Print raw JSON response")
+    search_parser.add_argument(
+        "--no-persist",
+        action="store_true",
+        help="Skip writing sold comparables to the ListingStore (persist is on by default)",
+    )
 
     hype_parser = subparsers.add_parser("hype", help="Run hype flow")
     hype_parser.add_argument("term", help="Term to evaluate")
@@ -93,14 +102,14 @@ def _print_search_response(response: SearchResponse) -> None:
             print()
 
 
-def _run_search(as_json: bool) -> int:
+def _run_search(as_json: bool, persist: bool) -> int:
     try:
         params = _prompt_params()
     except (EOFError, KeyboardInterrupt):
         print("\naborted", file=sys.stderr)
         return 130
 
-    response = asyncio.run(orchestrator.run_search(params))
+    response = asyncio.run(orchestrator.run_search(params, persist=persist))
     if as_json:
         print(response.model_dump_json(indent=2))
     else:
@@ -117,13 +126,33 @@ def _run_hype(term: str, as_json: bool) -> int:
     return 0
 
 
+def _wire_stores() -> None:
+    """Wire the ListingStore for scraper + EV. Mirrors ``backend.main`` lifespan
+    so the CLI test harness can persist sold comparables to Supabase."""
+    url = os.environ.get("SUPABASE_URL", "").strip()
+    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    if not url or not key:
+        raise RuntimeError(
+            "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env "
+            "(pass --no-persist to skip)"
+        )
+    from supabase import create_client
+
+    store = ListingStore(create_client(url, key))
+    set_scraper_store(store)
+    set_ev_store(store)
+
+
 def main(argv: list[str] | None = None) -> int:
     load_dotenv()
     parser = _build_parser()
     args = parser.parse_args(argv)
     try:
         if args.command == "search":
-            return _run_search(as_json=args.json)
+            persist = not args.no_persist
+            if persist:
+                _wire_stores()
+            return _run_search(as_json=args.json, persist=persist)
         if args.command == "hype":
             return _run_hype(term=args.term, as_json=args.json)
         parser.print_help()
