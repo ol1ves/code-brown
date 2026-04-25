@@ -45,7 +45,13 @@ export function DistributionCurve({ price, percentiles }: DistributionCurveProps
       </div>
 
       <div className="relative h-40">
-        <svg viewBox="0 0 400 120" className="w-full h-full" preserveAspectRatio="none">
+        <svg
+          viewBox="0 0 400 120"
+          className="w-full h-full"
+          preserveAspectRatio="none"
+          role="img"
+          aria-label={`Price $${Math.round(price)} at ${Math.round(percentile)}th percentile of market distribution`}
+        >
           <path
             d="M 0,100 C 40,100 60,95 100,70 C 140,45 170,20 200,10 C 230,20 260,45 300,70 C 340,95 360,100 400,100"
             fill="none"
