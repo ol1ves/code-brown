@@ -168,6 +168,70 @@ class EVPercentileContractTests(unittest.TestCase):
         self.assertIn("confidence_percentage", result["metrics"])
         self.assertNotIn("confidence", result["metrics"])
 
+    def test_calculate_buy_cost_applies_tax_only_to_listing_price(self):
+        result = self.module.calculate_buy_cost(
+            listing_price=850,
+            shipping_cost=20,
+        )
+
+        self.assertEqual(result["listing_price"], 850)
+        self.assertEqual(result["shipping_cost"], 20)
+        self.assertEqual(result["sales_tax_rate"], 0.08875)
+        self.assertAlmostEqual(result["tax_amount"], 850 * 0.08875)
+        self.assertAlmostEqual(result["buy_cost"], 850 * 1.08875 + 20)
+
+    def test_calculate_grailed_net_payout_uses_domestic_fee_formula(self):
+        result = self.module.calculate_grailed_net_payout(
+            item_price=845,
+            shipping_charged=0,
+            region="domestic",
+        )
+
+        self.assertAlmostEqual(result["total_transaction"], 845)
+        self.assertAlmostEqual(result["commission_fee"], 845 * 0.09)
+        self.assertAlmostEqual(result["processing_fee"], 845 * 0.0349 + 0.49)
+        self.assertAlmostEqual(
+            result["total_fees"],
+            (845 * 0.09) + (845 * 0.0349 + 0.49),
+        )
+        self.assertAlmostEqual(result["net_payout"], 845 - result["total_fees"])
+
+    def test_value_listing_emits_fee_adjusted_profit_fields(self):
+        result = self.module.value_listing(make_row(), scraped_at=1713995645)
+        metrics = result["metrics"]
+        q50 = result["dist"]["q50"]
+        expected_buy_cost = 850 * 1.08875 + 20
+        expected_grailed_fees = (q50 * 0.09) + (q50 * 0.0349 + 0.49)
+        expected_grailed_payout = q50 - expected_grailed_fees
+        expected_profit_grailed = expected_grailed_payout - expected_buy_cost
+        expected_profit_off_grailed = q50 - expected_buy_cost
+
+        self.assertEqual(result["cost"], 870)
+        self.assertEqual(metrics["edge_usd"], round(q50 - 870, 2))
+        self.assertEqual(metrics["percent_under"], round(((q50 - 870) / q50) * 100, 1))
+        self.assertEqual(result["listing_price"], 850)
+        self.assertEqual(result["buy_shipping_cost"], 20)
+        self.assertEqual(result["tax_amount"], round(850 * 0.08875, 2))
+        self.assertEqual(result["buy_cost"], round(expected_buy_cost, 2))
+        self.assertEqual(metrics["grailed_total_fees"], round(expected_grailed_fees, 2))
+        self.assertEqual(metrics["grailed_net_payout"], round(expected_grailed_payout, 2))
+        self.assertEqual(
+            metrics["expected_profit_off_grailed"],
+            round(expected_profit_off_grailed, 2),
+        )
+        self.assertEqual(
+            metrics["expected_profit_grailed"],
+            round(expected_profit_grailed, 2),
+        )
+        self.assertEqual(
+            metrics["expected_profit_off_grailed_pct"],
+            round(expected_profit_off_grailed / expected_buy_cost, 4),
+        )
+        self.assertEqual(
+            metrics["expected_profit_grailed_pct"],
+            round(expected_profit_grailed / expected_buy_cost, 4),
+        )
+
     def test_one_comp_market_caps_confidence_percentage_at_35(self):
         row = make_row()
         row["sold_comparables"] = row["sold_comparables"][:1]
