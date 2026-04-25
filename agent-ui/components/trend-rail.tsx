@@ -27,8 +27,8 @@ export function TrendRail({ candidates, hypeResults }: TrendRailProps) {
           const series = pickPrimarySeries(probe)
           return (
             <div key={c.query} className="space-y-1">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-medium truncate">{c.query}</span>
+              <div className="flex items-center justify-between gap-2 min-w-0">
+                <span className="text-xs font-medium truncate min-w-0">{c.query}</span>
                 <Badge
                   variant="outline"
                   className={cn(
