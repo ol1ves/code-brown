@@ -28,27 +28,23 @@ def build_sold_comparable_payload(
 ) -> dict[str, Any]:
     """Search the sold index for comparables of a given live listing.
 
-    Narrows match by carrying the live hit's category, condition, size, and
-    color into the sold query. Size and color have no clean Algolia facet, so
-    they are folded into the query text. Tighter filters mean some live
-    listings yield very few sold comparables — acceptable: arbitrage targets
-    are the items that *do* surface dense sold history.
+    Match by designer + category only. Size/color/condition were previously
+    folded into the query text or filters, but that pushed most live listings
+    to zero sold comps and forced ``no_data`` valuations downstream. Designer
+    + category alone keeps the comp set on-model while letting EV's recency
+    weighting and seller filters cull the noise.
     """
     name = str(live_hit.get("title") or "")
     designer = _extract_designer(live_hit)
-    size = str(live_hit.get("size") or "")
-    color = str(live_hit.get("color") or "")
-    condition = str(live_hit.get("condition") or "")
     category = str(live_hit.get("category") or "")
     category_path = str(live_hit.get("category_path") or "")
     department = str(live_hit.get("department") or "")
 
-    query_parts = [p for p in (name, color, size) if p]
     derived = params.model_copy(
         update={
-            "query": " ".join(query_parts),
+            "query": name,
             "designer": designer or params.designer,
-            "condition": condition or params.condition,
+            "condition": None,
             "category": category or params.category,
             "category_path": category_path or params.category_path,
             "department": department or params.department,
