@@ -46,7 +46,7 @@ Expected fields used by these models:
 - `sold_comparables[*].seller.transactions_count`
 - `sold_comparables[*].seller.badges.verified`
 - `sold_comparables[*].seller.badges.trusted_seller`
-- `sold_comparables[*].seller.posted_at_unix` (sell probability model only)
+- `sold_comparables[*].seller.posted_at_unix` (confidence percentage and sell probability model)
 
 ## 3) Percentile Valuation Model (`percentile calc v1.py`)
 
@@ -59,18 +59,16 @@ Expected fields used by these models:
 
 ### 3.2 Weighting Components
 
-Comparable weight is a product of four terms:
+Comparable weight is a product of two terms:
 
-`w = condition_weight * size_weight * recency_weight * seller_score`
+`w = recency_weight * seller_score`
 
 Definitions:
 
-- `condition_weight = exp(-alpha * abs(rank(target_cond) - rank(comp_cond)))`, `alpha=1.2`
-- `size_weight = exp(-beta * abs(target_size - comp_size))`, `beta=0.6`, fallback `0.70` if size parse fails
 - `recency_weight = exp(-gamma * days_ago)`, `gamma=0.005`
 - `seller_score = 0.8 + 0.2 * min(trust_factor, 1.0) + badge_bonus`
 
-Only comparables with same designer are considered. Rows with `w <= 0.01` are dropped.
+Only comparables with same designer are considered. Rows with `w <= 0.01` are dropped. Size, condition, and product/search similarity are expected to be hard-filtered before this model receives sold comparables.
 
 ### 3.3 Price Distribution
 
@@ -88,11 +86,19 @@ Effective sample size uses Kish ESS:
 
 - `effective_n = (sum(w)^2) / sum(w^2)`
 
-Confidence buckets:
+Confidence percentage uses Kish ESS, percentile spread, and valid time-to-sell comp count:
 
-- `low` if `effective_n <= 8`
-- `medium` if `8 < effective_n <= 15`
-- `high` if `effective_n > 15`
+- `sample_confidence = min(effective_n / 8, 1)`
+- `spread = (q90 - q10) / q50`
+- `spread_confidence = 1 / (1 + spread)`
+- `liquidity_confidence = min(num_valid_time_comps / 8, 1)`
+- `confidence_percentage = 100 * (0.35 * sample_confidence + 0.50 * spread_confidence + 0.15 * liquidity_confidence)`
+- If `effective_n < 2`, cap `confidence_percentage` at `35`.
+- Final value is rounded to one decimal place.
+
+Valid time-to-sell comps use the same timestamp rule as the sell probability model: `sold_at_unix` and `seller.posted_at_unix` must both exist, and `0 < days_to_sell <= 365`.
+
+If `q50 <= 0`, valuation returns no data instead of calculating confidence from an invalid denominator.
 
 ### 3.4 Output Contract
 
@@ -112,7 +118,9 @@ Success shape:
     "edge_usd": float,        # q50 - cost
     "percent_under": float,   # ((q50 - cost) / q50) * 100
     "effective_n": float,
-    "confidence": "low" | "medium" | "high"
+    "confidence_percentage": float,
+    "num_valid_price_comps": int,
+    "num_valid_time_comps": int
   }
 }
 ```
@@ -184,6 +192,6 @@ Output:
 
 ## 6) Non-Goals in Current Implementation
 
-- No uncertainty calibration beyond simple confidence bucket thresholds.
+- No designer/category-specific confidence calibration beyond the global thin-market formula.
 - No designer/category-specific hyperparameter tuning.
 - No guarantee that output dicts fully conform to Pydantic models unless validated by caller.

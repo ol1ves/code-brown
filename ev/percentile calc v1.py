@@ -1,53 +1,12 @@
 import math
-import time
-from typing import Any, Dict, List, Optional
+from typing import Dict, List
 import numpy as np
 
-# -----------------------------
-# 1. Condition & Size Normalization
-# -----------------------------
-
-# Based on official Grailed UI categories
-CONDITION_RANK = {
-    "new/never worn": 3,
-    "gently used": 2,
-    "used": 1,
-    "very worn": 0,
-}
-
-def normalize_condition(raw: str) -> str:
-    if not raw: return "used"
-    clean = raw.lower().strip()
-    if "new" in clean: return "new/never worn"
-    if "gently" in clean: return "gently used"
-    if "very" in clean: return "very worn"
-    return "used"
-
-def parse_size(size: Any) -> Optional[float]:
-    """Parses strings like 'US 9.5', '43', or 'M / 10' into 10.0"""
-    if size is None: return None
-    s = str(size).lower().replace(",", ".")
-    tokens = s.replace("/", " ").replace("-", " ").split()
-    nums = []
-    for tok in tokens:
-        try: nums.append(float(tok))
-        except ValueError: pass
-    return nums[-1] if nums else None
+SECONDS_PER_DAY = 86400
 
 # -----------------------------
-# 2. Individual Weighting Components
+# 1. Individual Weighting Components
 # -----------------------------
-
-def get_condition_weight(target: str, comp: str, alpha: float = 1.2) -> float:
-    t_rank = CONDITION_RANK.get(normalize_condition(target), 1)
-    c_rank = CONDITION_RANK.get(normalize_condition(comp), 1)
-    return math.exp(-alpha * abs(t_rank - c_rank))
-
-def get_size_weight(target: Any, comp: Any, beta: float = 0.6) -> float:
-    t_size = parse_size(target)
-    c_size = parse_size(comp)
-    if t_size is None or c_size is None: return 0.70
-    return math.exp(-beta * abs(t_size - c_size))
 
 def get_recency_weight(sold_unix: int, current_unix: int, gamma: float = 0.005) -> float:
     """Decays weight based on days since sale (approx 0.6x weight at 100 days)"""
@@ -67,7 +26,7 @@ def get_seller_score(seller: Dict) -> float:
     return 0.8 + (min(trust_factor, 1.0) * 0.2) + badge_bonus
 
 # -----------------------------
-# 3. Statistical Core
+# 2. Statistical Core
 # -----------------------------
 
 def weighted_percentile(values: List[float], weights: List[float], p: float) -> float:
@@ -85,8 +44,42 @@ def get_effective_n(weights: List[float]) -> float:
     if np.sum(w) == 0: return 0
     return float((np.sum(w)**2) / np.sum(w**2))
 
+def has_valid_time_to_sell(comp: Dict) -> bool:
+    sold_at = comp.get("sold_at_unix")
+    seller = comp.get("seller", {}) or {}
+    posted_at = seller.get("posted_at_unix")
+
+    if sold_at is None or posted_at is None:
+        return False
+
+    days = (sold_at - posted_at) / SECONDS_PER_DAY
+    return 0 < days <= 365
+
+def get_confidence_percentage(
+    effective_n: float,
+    q10: float,
+    q50: float,
+    q90: float,
+    num_valid_time_comps: int,
+) -> float:
+    sample_confidence = min(effective_n / 8, 1)
+    spread = (q90 - q10) / q50
+    spread_confidence = 1 / (1 + spread)
+    liquidity_confidence = min(num_valid_time_comps / 8, 1)
+
+    confidence_percentage = 100 * (
+        0.35 * sample_confidence
+        + 0.50 * spread_confidence
+        + 0.15 * liquidity_confidence
+    )
+
+    if effective_n < 2:
+        confidence_percentage = min(confidence_percentage, 35)
+
+    return round(confidence_percentage, 1)
+
 # -----------------------------
-# 4. The Appraisal Engine
+# 3. The Appraisal Engine
 # -----------------------------
 
 def value_listing(row: Dict, scraped_at: int) -> Dict:
@@ -99,22 +92,21 @@ def value_listing(row: Dict, scraped_at: int) -> Dict:
     total_cost = live_price + live_ship
 
     prices, weights = [], []
+    num_valid_time_comps = 0
 
     for comp in comps:
         # 1. Hard Filter: Designer must match
         if comp.get("designer", "").lower() != live.get("designer", "").lower():
             continue
+
+        if has_valid_time_to_sell(comp):
+            num_valid_time_comps += 1
         
         # 2. Extract All-In Sold Price
         sold_total = comp["price"]["sold_price_usd"] + comp["price"]["shipping_price_usd"]
         
         # 3. Calculate Aggregate Weight
-        w = (
-            get_condition_weight(live["condition_raw"], comp["condition_raw"]) *
-            get_size_weight(live["size"], comp["size"]) *
-            get_recency_weight(comp["sold_at_unix"], scraped_at) *
-            get_seller_score(comp["seller"])
-        )
+        w = get_recency_weight(comp["sold_at_unix"], scraped_at) * get_seller_score(comp["seller"])
         
         if w > 0.01: # Filter out irrelevant noise
             prices.append(sold_total)
@@ -129,10 +121,16 @@ def value_listing(row: Dict, scraped_at: int) -> Dict:
     p90 = weighted_percentile(prices, weights, 90)
     eff_n = get_effective_n(weights)
 
-    # Simple Confidence Logic
-    confidence = "low"
-    if eff_n > 8: confidence = "medium"
-    if eff_n > 15: confidence = "high"
+    if p50 <= 0:
+        return {"id": live["id"], "status": "no_data"}
+
+    confidence_percentage = get_confidence_percentage(
+        eff_n,
+        p10,
+        p50,
+        p90,
+        num_valid_time_comps,
+    )
 
     return {
         "id": live["id"],
@@ -145,14 +143,16 @@ def value_listing(row: Dict, scraped_at: int) -> Dict:
         },
         "metrics": {
             "edge_usd": round(p50 - total_cost, 2),
-            "percent_under": round(((p50 - total_cost) / p50) * 100, 1) if p50 > 0 else 0,
+            "percent_under": round(((p50 - total_cost) / p50) * 100, 1),
             "effective_n": round(eff_n, 1),
-            "confidence": confidence
+            "confidence_percentage": confidence_percentage,
+            "num_valid_price_comps": len(prices),
+            "num_valid_time_comps": num_valid_time_comps
         }
     }
 
 # -----------------------------
-# 5. Main Entry Point
+# 4. Main Entry Point
 # -----------------------------
 
 def process_scrape(data: Dict) -> List[Dict]:

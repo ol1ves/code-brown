@@ -116,4 +116,4 @@ def estimate_sell_probability(
         "q50_comp_price": q50,
         "num_valid_time_comps": len(times),
         "num_sold_comps": len(comps),
-    }
+    }[  ]
