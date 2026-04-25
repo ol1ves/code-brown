@@ -35,6 +35,11 @@ export function CandidateCard({ candidate, status, probe, showGraph = true }: Ca
           <h4 className="font-medium text-sm leading-tight">{candidate.query}</h4>
           <StatusBadge status={status} />
         </div>
+        {candidate.hype_term && candidate.hype_term !== candidate.query && (
+          <p className="text-[10px] text-muted-foreground mb-2">
+            Trend probe: <span className="text-foreground font-medium">{candidate.hype_term}</span>
+          </p>
+        )}
         <p className="text-xs text-muted-foreground mb-3">{candidate.why}</p>
 
         {probe && (

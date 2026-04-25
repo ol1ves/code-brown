@@ -47,9 +47,9 @@ export const initialState: AgentUiState = {
 }
 
 function scoreOf(item: Recommendation): number {
+  if (item.confidence === "no_data") return 0
   const edge = Number(item.edge_usd || 0)
   const pSell = Number(item.p_sell || 0)
-  if (edge === 0) return pSell * -1
   return edge * pSell
 }
 
