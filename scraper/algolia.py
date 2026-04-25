@@ -68,6 +68,32 @@ def extract_hits(raw: dict[str, Any]) -> list[dict[str, Any]]:
     return [h for h in hits if isinstance(h, dict)]
 
 
+def extract_hits_per_request(
+    raw: dict[str, Any], n_requests: int
+) -> list[list[dict[str, Any]]]:
+    """Multi-query response → list of hit-lists, one per request in send order."""
+    results = raw.get("results")
+    if not isinstance(results, list):
+        raise SchemaValidationError("Algolia response missing 'results'")
+    out: list[list[dict[str, Any]]] = []
+    for i in range(n_requests):
+        result = results[i] if i < len(results) else {}
+        hits = result.get("hits") if isinstance(result, dict) else None
+        out.append([h for h in hits if isinstance(h, dict)] if isinstance(hits, list) else [])
+    return out
+
+
+def extract_results_in_order(raw: dict[str, Any], n: int) -> list[dict[str, Any]]:
+    """Multi-query response → list of raw result dicts, padded to ``n`` entries."""
+    results = raw.get("results")
+    if not isinstance(results, list):
+        raise SchemaValidationError("Algolia response missing 'results'")
+    return [
+        results[i] if i < len(results) and isinstance(results[i], dict) else {}
+        for i in range(n)
+    ]
+
+
 def parse_live_hit(
     hit: dict[str, Any],
     seller_stats: dict[int, tuple[int, int]] | None = None,
@@ -107,18 +133,20 @@ def hit_user_id(hit: dict[str, Any]) -> int | None:
 
 
 def build_seller_stats_payload(user_id: int, index_name: str) -> dict[str, Any]:
-    """Single Algolia call yielding nbHits (items_for_sale_count) and all
-    accessible created_at_i timestamps (oldest used as posted_at_unix proxy).
+    """Single Algolia call yielding nbHits (items_for_sale_count) and the oldest
+    created_at_i across *all* matching listings via facet stats.
 
-    hitsPerPage is capped at Algolia's 1000 max; sellers with >1000 listings
-    yield a lower-bound approximation for posted_at_unix.
+    ``hitsPerPage=0`` ships no documents; ``facets=["created_at_i"]`` makes
+    Algolia return min/max/avg/sum across the full match set, not just the
+    1000-doc page. Smaller payload, more accurate posted_at_unix.
     """
     encoded = urlencode(
         {
             "filters": f"user.id:{user_id}",
-            "hitsPerPage": "1000",
+            "hitsPerPage": "0",
             "page": "0",
-            "attributesToRetrieve": json.dumps(["created_at_i"]),
+            "facets": json.dumps(["created_at_i"]),
+            "attributesToRetrieve": json.dumps([]),
             "attributesToHighlight": json.dumps([]),
         }
     )
@@ -131,14 +159,15 @@ def parse_seller_stats(raw: dict[str, Any]) -> tuple[int, int]:
     if not isinstance(results, list) or not results:
         return (0, 0)
     res = results[0]
+    if not isinstance(res, dict):
+        return (0, 0)
     nb_hits = _coerce_int(res.get("nbHits"))
-    timestamps = [
-        _coerce_int(h.get("created_at_i"))
-        for h in res.get("hits", [])
-        if isinstance(h, dict) and h.get("created_at_i")
-    ]
-    timestamps = [t for t in timestamps if t > 0]
-    posted_at = min(timestamps) if timestamps else 0
+    posted_at = 0
+    facets_stats = res.get("facets_stats")
+    if isinstance(facets_stats, dict):
+        ts_stats = facets_stats.get("created_at_i")
+        if isinstance(ts_stats, dict):
+            posted_at = _coerce_int(ts_stats.get("min"))
     return (nb_hits, posted_at)
 
 

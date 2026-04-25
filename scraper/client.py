@@ -85,8 +85,14 @@ class GrailedClient:
         url: str,
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
+        *,
+        throttle: bool = True,
     ) -> Any:
-        """GET the URL and return decoded JSON with retry semantics."""
+        """GET the URL and return decoded JSON with retry semantics.
+
+        ``throttle=False`` skips the inter-request jitter delay (use for trusted
+        APIs like Algolia that don't need anti-bot pacing).
+        """
         try:
             async for attempt in AsyncRetrying(
                 retry=retry_if_exception_type((_RateLimited, _ServerError)),
@@ -97,7 +103,7 @@ class GrailedClient:
                 reraise=True,
             ):
                 with attempt:
-                    return await self._do_get(url, params, headers)
+                    return await self._do_get(url, params, headers, throttle=throttle)
         except RetryError as exc:
             raise GrailedRateLimitExceeded(str(exc)) from exc
         except _RateLimited as exc:
@@ -133,8 +139,14 @@ class GrailedClient:
         url: str,
         json_payload: Any,
         headers: dict[str, str] | None = None,
+        *,
+        throttle: bool = True,
     ) -> Any:
-        """POST JSON to the URL and return decoded JSON with retry semantics."""
+        """POST JSON to the URL and return decoded JSON with retry semantics.
+
+        ``throttle=False`` skips the inter-request jitter delay (use for trusted
+        APIs like Algolia that don't need anti-bot pacing).
+        """
         try:
             async for attempt in AsyncRetrying(
                 retry=retry_if_exception_type((_RateLimited, _ServerError)),
@@ -145,7 +157,7 @@ class GrailedClient:
                 reraise=True,
             ):
                 with attempt:
-                    return await self._do_post(url, json_payload, headers)
+                    return await self._do_post(url, json_payload, headers, throttle=throttle)
         except RetryError as exc:
             raise GrailedRateLimitExceeded(str(exc)) from exc
         except _RateLimited as exc:
@@ -156,6 +168,8 @@ class GrailedClient:
         url: str,
         params: dict[str, Any] | None,
         extra_headers: dict[str, str] | None,
+        *,
+        throttle: bool = True,
     ) -> Any:
         if self._client is None:
             raise RuntimeError("GrailedClient not entered")
@@ -166,7 +180,8 @@ class GrailedClient:
 
         async with self._sem:
             response = await self._client.get(url, params=params, headers=headers)
-            await asyncio.sleep(random.uniform(*self._delay_range))
+            if throttle:
+                await asyncio.sleep(random.uniform(*self._delay_range))
 
         if response.status_code == 429:
             raise _RateLimited(f"429 response from {url}")
@@ -181,6 +196,8 @@ class GrailedClient:
         url: str,
         json_payload: Any,
         extra_headers: dict[str, str] | None,
+        *,
+        throttle: bool = True,
     ) -> Any:
         if self._client is None:
             raise RuntimeError("GrailedClient not entered")
@@ -191,7 +208,8 @@ class GrailedClient:
 
         async with self._sem:
             response = await self._client.post(url, json=json_payload, headers=headers)
-            await asyncio.sleep(random.uniform(*self._delay_range))
+            if throttle:
+                await asyncio.sleep(random.uniform(*self._delay_range))
 
         if response.status_code == 429:
             raise _RateLimited(f"429 response from {url}")

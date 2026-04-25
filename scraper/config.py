@@ -6,7 +6,7 @@ import os
 
 LIVE_CAP = 40
 SOLD_CAP_PER_LIVE = 40
-MAX_CONCURRENCY = 2
+MAX_CONCURRENCY = 7
 REQUEST_DELAY_RANGE = (1.0, 2.0)  # seconds, uniform jitter
 REQUEST_TIMEOUT_SEC = 20.0
 

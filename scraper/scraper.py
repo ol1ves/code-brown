@@ -13,6 +13,7 @@ from scraper.algolia import (
     build_seller_stats_payload,
     build_sold_comparable_payload,
     extract_hits,
+    extract_results_in_order,
     hit_user_id,
     parse_live_hit,
     parse_seller_stats,
@@ -135,6 +136,7 @@ async def _search_live(
         ALGOLIA_SEARCH_URL,
         payload,
         headers=get_algolia_headers(),
+        throttle=False,
     )
     return extract_hits(raw)
 
@@ -142,16 +144,28 @@ async def _search_live(
 async def _search_sold_for_each(
     client: GrailedClient, live_hits: list[dict[str, Any]], params: SearchParams
 ) -> list[list[dict[str, Any]]]:
-    out: list[list[dict[str, Any]]] = []
+    """Batch all sold-comparable queries into one Algolia multi-query POST."""
+    if not live_hits:
+        return []
+    merged_requests: list[dict[str, Any]] = []
     for hit in live_hits:
         payload = build_sold_comparable_payload(hit, params, ALGOLIA_SOLD_INDEX)
-        raw = await client.post_json(
-            ALGOLIA_SEARCH_URL,
-            payload,
-            headers=get_algolia_headers(),
-        )
-        sold_hits = extract_hits(raw)[: params.sold_limit]
-        out.append(sold_hits)
+        merged_requests.extend(payload["requests"])
+    raw = await client.post_json(
+        ALGOLIA_SEARCH_URL,
+        {"requests": merged_requests},
+        headers=get_algolia_headers(),
+        throttle=False,
+    )
+    results = extract_results_in_order(raw, len(live_hits))
+    out: list[list[dict[str, Any]]] = []
+    for result in results:
+        hits = result.get("hits") if isinstance(result, dict) else None
+        if not isinstance(hits, list):
+            out.append([])
+            continue
+        sold = [h for h in hits if isinstance(h, dict)][: params.sold_limit]
+        out.append(sold)
     return out
 
 
@@ -241,14 +255,19 @@ async def _fetch_seller_stats(
     if not user_ids:
         return {}
 
-    async def fetch(uid: int) -> tuple[int, tuple[int, int]]:
+    ordered_uids = list(user_ids)
+    merged_requests: list[dict[str, Any]] = []
+    for uid in ordered_uids:
         payload = build_seller_stats_payload(uid, ALGOLIA_LIVE_INDEX)
-        raw = await client.post_json(
-            ALGOLIA_SEARCH_URL,
-            payload,
-            headers=get_algolia_headers(),
-        )
-        return uid, parse_seller_stats(raw)
-
-    results = await asyncio.gather(*(fetch(uid) for uid in user_ids))
-    return dict(results)
+        merged_requests.extend(payload["requests"])
+    raw = await client.post_json(
+        ALGOLIA_SEARCH_URL,
+        {"requests": merged_requests},
+        headers=get_algolia_headers(),
+        throttle=False,
+    )
+    results = extract_results_in_order(raw, len(ordered_uids))
+    return {
+        uid: parse_seller_stats({"results": [result]})
+        for uid, result in zip(ordered_uids, results)
+    }
