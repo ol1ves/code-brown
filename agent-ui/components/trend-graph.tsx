@@ -1,5 +1,6 @@
 "use client"
 
+import { useId } from "react"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import { cn } from "@/lib/utils"
 import type { TrendSeries } from "@/lib/types"
@@ -10,9 +11,19 @@ interface TrendGraphProps {
   title?: string
   className?: string
   height?: number
+  showHeader?: boolean
 }
 
-export function TrendGraph({ series, momentum, title, className, height = 96 }: TrendGraphProps) {
+export function TrendGraph({
+  series,
+  momentum,
+  title,
+  className,
+  height = 96,
+  showHeader = true,
+}: TrendGraphProps) {
+  const reactId = useId()
+
   if (!series || series.points.length === 0) {
     return (
       <div
@@ -29,17 +40,19 @@ export function TrendGraph({ series, momentum, title, className, height = 96 }: 
     momentum > 0 ? "hsl(var(--primary))"
     : momentum < 0 ? "hsl(var(--destructive))"
     : "hsl(var(--muted-foreground))"
-  const gradientId = `trend-${series.range}-${data.length}-${momentum}`
+  const gradientId = `trend-${reactId}`
   const max = Math.max(...data.map((d) => d.v), 1)
 
   return (
     <div className={cn("rounded border border-border bg-muted/20 p-2", className)}>
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-          {title ?? `Trend (${series.range})`}
-        </span>
-        <span className="text-[10px] text-muted-foreground">peak {max}</span>
-      </div>
+      {showHeader && (
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            {title ?? `Trend (${series.range})`}
+          </span>
+          <span className="text-[10px] text-muted-foreground">peak {max}</span>
+        </div>
+      )}
       <div style={{ height }}>
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
