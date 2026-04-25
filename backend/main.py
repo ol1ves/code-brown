@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import secrets
 import sys
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -12,7 +13,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from starlette.responses import Response
+from starlette.responses import Response, StreamingResponse
 from supabase import create_client
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -21,10 +22,16 @@ if str(_REPO_ROOT) not in sys.path:
 
 load_dotenv()
 
-from backend.orchestrator import run_hype, run_search
+from backend.orchestrator import run_agent_stream, run_hype, run_search
 from ev.ev import set_store as set_ev_store
 from scraper.scraper import set_store as set_scraper_store
-from shared.models import HypeResult, Recommendation, SearchParams, SearchResponse
+from shared.models import (
+    AgentRunRequest,
+    HypeResult,
+    Recommendation,
+    SearchParams,
+    SearchResponse,
+)
 from shared.store import (
     ListingStore,
     get_recommendations_store,
@@ -115,3 +122,23 @@ def recommendations(
     items = [Recommendation.model_validate(r) for r in rows]
     items.sort(key=lambda r: r.edge_usd, reverse=True)
     return RecommendationsResponse(items=items)
+
+
+@app.post("/agent/run")
+async def agent_run(request: AgentRunRequest):
+    async def _sse():
+        async for event in run_agent_stream(
+            intent_text=request.intent_text,
+            seed_params=request.seed_params,
+        ):
+            yield f"data: {json.dumps(event)}\n\n"
+
+    return StreamingResponse(
+        _sse(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

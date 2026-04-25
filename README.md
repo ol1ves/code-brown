@@ -37,14 +37,16 @@ OpenAPI docs auto-generate at `http://localhost:8000/docs` once the server is up
 
 Each dev runs their own backend on `localhost` with their own keys. **Do not commit `.env`** — it's gitignored.
 
-| Variable | Required | What it is |
-|---|---|---|
-| `API_KEY` | yes | Bearer token clients must send. Pick anything random, e.g. `python -c "import secrets; print(secrets.token_urlsafe(32))"`. |
-| `SUPABASE_URL` | yes | Your Supabase project URL (e.g. `https://xxxx.supabase.co`). Use your own dev project. |
-| `SUPABASE_SERVICE_ROLE_KEY` | yes | Service role key from the same project. Keep it server-side only. |
-| `ALGOLIA_API_KEY` | yes | Grailed's public Algolia search key. Grab from a Grailed page (Network tab on a search request). |
-| `HYPE_TRENDS_TIMEFRAME` | no | Defaults to `today 3-m`. Google Trends timeframe string. |
-| `HYPE_TRENDS_GEO` | no | Defaults to empty (worldwide). ISO country code if you want regional data. |
+
+| Variable                    | Required | What it is                                                                                                                 |
+| --------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `API_KEY`                   | yes      | Bearer token clients must send. Pick anything random, e.g. `python -c "import secrets; print(secrets.token_urlsafe(32))"`. |
+| `SUPABASE_URL`              | yes      | Your Supabase project URL (e.g. `https://xxxx.supabase.co`). Use your own dev project.                                     |
+| `SUPABASE_SERVICE_ROLE_KEY` | yes      | Service role key from the same project. Keep it server-side only.                                                          |
+| `ALGOLIA_API_KEY`           | yes      | Grailed's public Algolia search key. Grab from a Grailed page (Network tab on a search request).                           |
+| `HYPE_TRENDS_TIMEFRAME`     | no       | Defaults to `today 3-m`. Google Trends timeframe string.                                                                   |
+| `HYPE_TRENDS_GEO`           | no       | Defaults to empty (worldwide). ISO country code if you want regional data.                                                 |
+
 
 Your Supabase project needs the migrations in `supabase/migrations/` applied — `listings` and `recommendations` tables plus the `list_latest_recommendations` RPC. Run them via the Supabase SQL editor or `supabase db push` if you have the CLI wired.
 
@@ -147,11 +149,13 @@ Two opaque dicts whose internals will grow over time:
 ## 5. What's stable, what's not
 
 Stable — depend on these:
+
 - The four endpoints, their auth model, request and response shapes.
 - Top-level typed fields on `Recommendation`.
 - Existing keys inside `valuation` / `sell_probability` (additive-only — see [docs/2026-04-25-rest-api-and-ev-persistence-design.md §4.3](docs/2026-04-25-rest-api-and-ev-persistence-design.md)).
 
 Not stable — **don't build against and don't modify**:
+
 - `backend/orchestrator.py` — wiring is being reworked.
 - `scraper/`, `ev/`, `hype/`, `shared/store.py` — internal modules. Going through more changes.
 - The Supabase schema beyond what's in `supabase/migrations/`.
@@ -162,15 +166,15 @@ If you need a new endpoint, a new field, or a behavior change: ping Oliver. Don'
 
 ## 6. Troubleshooting
 
-**`RuntimeError: API_KEY environment variable must be set`** on startup → your `.env` isn't loaded or the value is empty. Confirm you're running from the repo root and `.env` lives there.
+`**RuntimeError: API_KEY environment variable must be set`** on startup → your `.env` isn't loaded or the value is empty. Confirm you're running from the repo root and `.env` lives there.
 
-**`401 Unauthorized`** on every request → missing `Authorization: Bearer ...` header, or the token doesn't match `API_KEY` in `.env`.
+`**401 Unauthorized**` on every request → missing `Authorization: Bearer ...` header, or the token doesn't match `API_KEY` in `.env`.
 
 **Supabase errors on `/search` or `/recommendations`** → migrations haven't been applied to your project, or `SUPABASE_SERVICE_ROLE_KEY` is the anon key by mistake. The service role key is the longer one in the project's API settings.
 
 **Port already in use** → `--port 8001` or `lsof -ti:8000 | xargs kill`.
 
-**`/search` is slow / hangs** → it's doing real network calls (Grailed + Algolia). 5–30s is normal. If it's >60s, Grailed may be rate-limiting your IP.
+`**/search` is slow / hangs** → it's doing real network calls (Grailed + Algolia). 5–30s is normal. If it's >60s, Grailed may be rate-limiting your IP.
 
 ---
 

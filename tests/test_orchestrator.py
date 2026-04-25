@@ -307,3 +307,147 @@ def test_run_hype_calls_each_fetch_once_and_assembles_result(monkeypatch):
     assert result.series_90d == series_90
     assert result.evidence == HypeEvidence(related=related_items)
     assert before <= result.fetched_at_unix <= after
+
+
+def test_run_agent_stream_happy_path(monkeypatch):
+    async def _expand_stub(intent_text: str, *, n: int = 6):
+        return "intent ok", [orchestrator.CandidateQuery(query="q1", why="w1"), orchestrator.CandidateQuery(query="q2", why="w2")]
+
+    async def _run_hype_stub(term: str):
+        return orchestrator.HypeResult(
+            term=term,
+            score=0.47,
+            confidence="high",
+            series_30d=TrendSeries(range="30d", points=[TrendPoint(day_unix=1700000000, intensity=20)]),
+            series_7d=TrendSeries(range="7d", points=[TrendPoint(day_unix=1700000000, intensity=42)]),
+            series_90d=TrendSeries(range="90d", points=[TrendPoint(day_unix=1700000000, intensity=4)]),
+            evidence=HypeEvidence(related=[]),
+            fetched_at_unix=1700000000,
+        )
+
+    async def _plan_stub(*, intent_text: str, candidates: list[dict], hype_results: dict):
+        yield {"type": "plan_thinking", "delta": "thinking"}
+        yield {
+            "type": "plan",
+            "seed": intent_text,
+            "hype": {"score": 50, "confidence": "high", "momentum_7d_vs_90d_pct": 10},
+            "picked": [{"query": "q1", "momentum_pct": 10, "reasoning": "ok"}],
+            "skipped": [{"query": "q2", "reason": "skip"}],
+        }
+
+    async def _summary_stub(state):
+        yield {"type": "summary_thinking", "delta": "summary..."}
+        yield {"type": "summary", "text": "done", "highlights": []}
+
+    async def _run_search_stub(params: SearchParams):
+        metadata = ScrapeMetadata(
+            query=params.query,
+            categories=["menswear"],
+            live_limit_requested=5,
+            sold_limit_requested=3,
+            scraped_at_unix=1700000000,
+            total_live_found=1,
+        )
+        rec = orchestrator.Recommendation(
+            item_id="a",
+            scraped_at_unix=1700000000,
+            query=params.query,
+            edge_usd=100.0,
+            p_sell=0.5,
+            q50=700.0,
+            cost=600.0,
+            confidence="high",
+            valuation={"dist": {"q50": 700.0}, "metrics": {"edge_usd": 100.0}},
+            sell_probability={"p_sell": 0.5},
+            live_listing=_live("a"),
+        )
+        return orchestrator.SearchResponse(metadata=metadata, items=[rec])
+
+    monkeypatch.setattr(orchestrator, "expand_intent_candidates", _expand_stub)
+    monkeypatch.setattr(orchestrator, "run_hype", _run_hype_stub)
+    monkeypatch.setattr(orchestrator, "stream_plan", _plan_stub)
+    monkeypatch.setattr(orchestrator, "stream_summary", _summary_stub)
+    monkeypatch.setattr(orchestrator, "run_search", _run_search_stub)
+
+    async def _collect():
+        events = []
+        async for event in orchestrator.run_agent_stream(intent_text="archive ccp"):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    types = [e["type"] for e in events]
+
+    assert types[0] == "intent_parsed"
+    assert "candidates_generated" in types
+    assert "hype_started" in types
+    assert "hype_done" in types
+    assert "plan" in types
+    assert "query_started" in types
+    assert "query_done" in types
+    assert "summary" in types
+    assert types[-1] == "done"
+
+
+def test_run_agent_stream_timeout_emits_non_terminal_search_error(monkeypatch):
+    async def _expand_stub(intent_text: str, *, n: int = 6):
+        return "intent ok", [orchestrator.CandidateQuery(query="slow query", why="w")]
+
+    async def _run_hype_stub(term: str):
+        return orchestrator.HypeResult(
+            term=term,
+            score=0.2,
+            confidence="medium",
+            series_30d=TrendSeries(range="30d", points=[TrendPoint(day_unix=1700000000, intensity=10)]),
+            series_7d=TrendSeries(range="7d", points=[TrendPoint(day_unix=1700000000, intensity=10)]),
+            series_90d=TrendSeries(range="90d", points=[TrendPoint(day_unix=1700000000, intensity=10)]),
+            evidence=HypeEvidence(related=[]),
+            fetched_at_unix=1700000000,
+        )
+
+    async def _plan_stub(*, intent_text: str, candidates: list[dict], hype_results: dict):
+        yield {
+            "type": "plan",
+            "seed": intent_text,
+            "hype": {"score": 20, "confidence": "medium", "momentum_7d_vs_90d_pct": 0},
+            "picked": [{"query": "slow query", "momentum_pct": 8, "reasoning": "ok"}],
+            "skipped": [],
+        }
+
+    async def _summary_stub(state):
+        yield {"type": "summary", "text": "done", "highlights": []}
+
+    async def _run_search_stub(params: SearchParams):
+        await asyncio.sleep(0.01)
+        return orchestrator.SearchResponse(
+            metadata=ScrapeMetadata(
+                query=params.query,
+                categories=[],
+                live_limit_requested=1,
+                sold_limit_requested=1,
+                scraped_at_unix=1700000000,
+                total_live_found=0,
+            ),
+            items=[],
+        )
+
+    monkeypatch.setattr(orchestrator, "expand_intent_candidates", _expand_stub)
+    monkeypatch.setattr(orchestrator, "run_hype", _run_hype_stub)
+    monkeypatch.setattr(orchestrator, "stream_plan", _plan_stub)
+    monkeypatch.setattr(orchestrator, "stream_summary", _summary_stub)
+    monkeypatch.setattr(orchestrator, "run_search", _run_search_stub)
+
+    async def _collect():
+        events = []
+        async for event in orchestrator.run_agent_stream(
+            intent_text="slow test",
+            per_search_timeout_s=0.0001,
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    types = [e["type"] for e in events]
+    assert "error" in types
+    assert types[-1] == "done"
+    assert any(e.get("stage") == "search" for e in events if e["type"] == "error")
