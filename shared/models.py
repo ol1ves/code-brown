@@ -170,3 +170,59 @@ class SearchResponse(BaseModel):
 
     metadata: ScrapeMetadata
     items: list[Recommendation] = Field(default_factory=list)
+
+
+class AgentRunRequest(BaseModel):
+    intent_text: str = Field(min_length=1)
+    seed_params: SearchParams | None = None
+
+
+class CandidateQuery(BaseModel):
+    query: str
+    why: str
+
+
+class PlanPickedQuery(BaseModel):
+    query: str
+    momentum_pct: int
+    reasoning: str
+
+
+class PlanSkippedQuery(BaseModel):
+    query: str
+    reason: str
+
+
+class AgentPlan(BaseModel):
+    seed: str
+    hype: dict
+    picked: list[PlanPickedQuery] = Field(default_factory=list)
+    skipped: list[PlanSkippedQuery] = Field(default_factory=list)
+
+
+class SummaryHighlight(BaseModel):
+    item_id: str
+    why: str
+
+
+class AgentSummary(BaseModel):
+    text: str
+    highlights: list[SummaryHighlight] = Field(default_factory=list)
+
+
+class HypeProbeResult(BaseModel):
+    query: str
+    score: float | None
+    confidence: Literal["high", "medium", "low", "insufficient"]
+    momentum_pct: int
+    related: list[RelatedQuery] = Field(default_factory=list)
+
+
+class AgentRunState(BaseModel):
+    seed_params: SearchParams | None = None
+    intent_reasoning: str = ""
+    candidates: list[CandidateQuery] = Field(default_factory=list)
+    hype_results: dict[str, HypeProbeResult] = Field(default_factory=dict)
+    plan: AgentPlan
+    query_items: dict[str, list[Recommendation]] = Field(default_factory=dict)
+    query_errors: list[dict] = Field(default_factory=list)

@@ -313,3 +313,28 @@ def test_recommendations_handler_rejects_limit_too_large(client):
         headers={"Authorization": "Bearer test-key"},
     )
     assert res.status_code == 422
+
+
+def test_agent_run_stream_requires_bearer(client):
+    res = client.post("/agent/run", json={"intent_text": "find ccp"})
+    assert res.status_code == 401
+
+
+def test_agent_run_stream_returns_sse(client, monkeypatch):
+    async def _stub(*, intent_text: str, seed_params=None):
+        yield {"type": "intent_parsed", "params": {"query": "ccp"}, "reasoning": "stub"}
+        yield {"type": "done", "total_duration_ms": 1, "queries_run": 0, "queries_failed": 0, "total_items": 0}
+
+    monkeypatch.setattr(main_mod, "run_agent_stream", _stub)
+
+    with client.stream(
+        "POST",
+        "/agent/run",
+        headers={"Authorization": "Bearer test-key"},
+        json={"intent_text": "find ccp"},
+    ) as response:
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+        body = "".join(chunk for chunk in response.iter_text())
+    assert '"type": "intent_parsed"' in body
+    assert '"type": "done"' in body

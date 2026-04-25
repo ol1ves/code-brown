@@ -5,6 +5,7 @@ aiosignal==1.4.0
 aiosqlite==0.17.0
 annotated-doc==0.0.4
 annotated-types==0.7.0
+anthropic
 anyio==4.13.0
 asyncpraw==7.8.1
 asyncprawcore==2.4.0
