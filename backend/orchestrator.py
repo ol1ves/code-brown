@@ -26,6 +26,27 @@ from shared.models import (
 from shared.store import get_recommendations_store
 
 
+def _normalize_confidence(metrics: dict) -> str:
+    """Return a stable confidence label from EV metrics.
+
+    EV recently switched from a categorical ``confidence`` key to numeric
+    ``confidence_percentage``. Keep backend output stable for both shapes.
+    """
+    legacy = metrics.get("confidence")
+    if isinstance(legacy, str) and legacy:
+        return legacy
+
+    percentage = metrics.get("confidence_percentage")
+    if isinstance(percentage, (int, float)):
+        value = float(percentage)
+        if value >= 75:
+            return "high"
+        if value >= 50:
+            return "medium"
+        if value >= 25:
+            return "low"
+    return "insufficient"
+
 async def run_search(
     params: SearchParams,
     *,
