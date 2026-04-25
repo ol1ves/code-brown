@@ -17,10 +17,11 @@ from scraper.scraper import scrape
 from shared.models import (
     HypeEvidence,
     HypeResult,
-    RankedListing,
+    Recommendation,
     SearchParams,
     SearchResponse,
 )
+from shared.store import get_recommendations_store
 
 
 async def run_search(params: SearchParams, *, persist: bool = True) -> SearchResponse:
@@ -34,28 +35,38 @@ async def run_search(params: SearchParams, *, persist: bool = True) -> SearchRes
     scrape_result = await scrape(params, persist=persist)
     scraped_at = scrape_result.metadata.scraped_at_unix
 
-    ranked: list[RankedListing] = []
+    items: list[Recommendation] = []
     for row in scrape_result.results:
         row_dict = row.model_dump(mode="json")
         valuation = value_listing(row_dict, scraped_at)
         if valuation.get("status") == "no_data":
             continue
         sell_prob = estimate_sell_probability(row_dict)
-        ranked.append(
-            RankedListing(
-                live_listing=row.live_listing,
-                sold_comparables=row.sold_comparables,
+        metrics = valuation["metrics"]
+        items.append(
+            Recommendation(
+                item_id=row.live_listing.id,
+                scraped_at_unix=scraped_at,
+                query=params.query,
+                edge_usd=metrics["edge_usd"],
+                p_sell=sell_prob["p_sell"],
+                q50=valuation["dist"]["q50"],
+                cost=valuation["cost"],
+                confidence=metrics["confidence"],
                 valuation=valuation,
                 sell_probability=sell_prob,
+                live_listing=row.live_listing,
             )
         )
 
-    ranked.sort(
-        key=lambda r: r.sell_probability["p_sell"] * r.valuation["metrics"]["edge_usd"],
-        reverse=True,
-    )
+    items.sort(key=lambda r: r.p_sell * r.edge_usd, reverse=True)
 
-    return SearchResponse(metadata=scrape_result.metadata, ranked=ranked)
+    response = SearchResponse(metadata=scrape_result.metadata, items=items)
+    if persist:
+        store = get_recommendations_store()
+        if store is not None:
+            store.save_recommendations(response=response, params=params)
+    return response
 
 
 async def run_hype(term: str) -> HypeResult:

@@ -23,8 +23,8 @@ from ev.ev import set_store as set_ev_store
 from hype.cli import _print_summary as _print_hype_summary
 from scraper.cli import _prompt_params
 from scraper.scraper import set_store as set_scraper_store
-from shared.models import RankedListing, SearchResponse
-from shared.store import ListingStore
+from shared.models import Recommendation, SearchResponse
+from shared.store import ListingStore, set_recommendations_store
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -50,7 +50,7 @@ def _fmt_money(value: float | int) -> str:
     return f"${float(value):.2f}"
 
 
-def _print_ranked_line(item: RankedListing, idx: int, total: int) -> None:
+def _print_ranked_line(item: Recommendation, idx: int, total: int) -> None:
     live = item.live_listing
     val = item.valuation
     dist = val["dist"]
@@ -61,12 +61,12 @@ def _print_ranked_line(item: RankedListing, idx: int, total: int) -> None:
     print(
         " ".join(
             [
-                f"cost={_fmt_money(val['cost'])}",
+                f"cost={_fmt_money(item.cost)}",
                 f"q10={_fmt_money(dist['q10'])}",
-                f"q50={_fmt_money(dist['q50'])}",
+                f"q50={_fmt_money(item.q50)}",
                 f"q90={_fmt_money(dist['q90'])}",
-                f"edge={_fmt_money(metrics['edge_usd'])} ({metrics['percent_under']:.2f}%)",
-                f"confidence={metrics['confidence']}",
+                f"edge={_fmt_money(item.edge_usd)} ({metrics['percent_under']:.2f}%)",
+                f"confidence={item.confidence}",
                 f"effective_n={metrics['effective_n']}",
             ]
         )
@@ -75,7 +75,7 @@ def _print_ranked_line(item: RankedListing, idx: int, total: int) -> None:
     print(
         " ".join(
             [
-                f"p_sell={sp['p_sell']:.4f}",
+                f"p_sell={item.p_sell:.4f}",
                 f"median_days={sp['median_days_to_sell']:.2f}",
                 f"adjusted_days={sp['adjusted_days_to_sell']:.2f}",
                 f"pricing_ratio={sp['pricing_ratio']:.4f}",
@@ -91,12 +91,12 @@ def _print_search_response(response: SearchResponse) -> None:
     print(json.dumps(response.metadata.model_dump(mode="json"), indent=2))
     print()
 
-    if not response.ranked:
+    if not response.items:
         print("no rankable listings (all comp searches returned no_data)")
         return
 
-    total = len(response.ranked)
-    for idx, item in enumerate(response.ranked, start=1):
+    total = len(response.items)
+    for idx, item in enumerate(response.items, start=1):
         _print_ranked_line(item, idx, total)
         if idx < total:
             print()
@@ -141,6 +141,7 @@ def _wire_stores() -> None:
     store = ListingStore(create_client(url, key))
     set_scraper_store(store)
     set_ev_store(store)
+    set_recommendations_store(store)
 
 
 def main(argv: list[str] | None = None) -> int:

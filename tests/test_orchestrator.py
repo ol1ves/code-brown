@@ -4,6 +4,7 @@ import asyncio
 from datetime import UTC, datetime
 
 from backend import orchestrator
+from shared import store as store_mod
 from shared.models import (
     GrailedResultRow,
     GrailedScrapeResult,
@@ -136,7 +137,7 @@ def test_run_search_drops_no_data_rows(monkeypatch):
 
     response = asyncio.run(orchestrator.run_search(SearchParams(query="guidi")))
 
-    assert [item.live_listing.id for item in response.ranked] == ["b"]
+    assert [item.live_listing.id for item in response.items] == ["b"]
 
 
 def test_run_search_sorts_by_edge_usd_desc(monkeypatch):
@@ -155,10 +156,77 @@ def test_run_search_sorts_by_edge_usd_desc(monkeypatch):
 
     response = asyncio.run(orchestrator.run_search(SearchParams(query="guidi")))
 
-    assert [item.live_listing.id for item in response.ranked] == ["b", "c", "a"]
+    assert [item.live_listing.id for item in response.items] == ["b", "c", "a"]
 
 
-def test_run_search_passes_persist_false_to_scraper(monkeypatch):
+class _FakeRecsStore:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def save_recommendations(self, *, response, params) -> None:
+        self.calls.append({"response": response, "params": params})
+
+
+def test_run_search_persists_recommendations_when_store_set(monkeypatch):
+    scrape_result = _scrape_result(["a", "b"])
+
+    async def _scrape_stub(params, persist):
+        return scrape_result
+
+    monkeypatch.setattr(orchestrator, "scrape", _scrape_stub)
+    monkeypatch.setattr(orchestrator, "value_listing", lambda row, scraped_at: _valuation(10.0))
+    monkeypatch.setattr(orchestrator, "estimate_sell_probability", lambda row: _sell_prob())
+
+    fake = _FakeRecsStore()
+    store_mod.set_recommendations_store(fake)
+    try:
+        params = SearchParams(query="guidi")
+        response = asyncio.run(orchestrator.run_search(params))
+    finally:
+        store_mod.set_recommendations_store(None)
+
+    assert len(fake.calls) == 1
+    assert fake.calls[0]["params"] is params
+    assert fake.calls[0]["response"] is response
+
+
+def test_run_search_skips_persist_when_persist_false(monkeypatch):
+    scrape_result = _scrape_result(["a"])
+
+    async def _scrape_stub(params, persist):
+        return scrape_result
+
+    monkeypatch.setattr(orchestrator, "scrape", _scrape_stub)
+    monkeypatch.setattr(orchestrator, "value_listing", lambda row, scraped_at: _valuation(10.0))
+    monkeypatch.setattr(orchestrator, "estimate_sell_probability", lambda row: _sell_prob())
+
+    fake = _FakeRecsStore()
+    store_mod.set_recommendations_store(fake)
+    try:
+        asyncio.run(orchestrator.run_search(SearchParams(query="guidi"), persist=False))
+    finally:
+        store_mod.set_recommendations_store(None)
+
+    assert fake.calls == []
+
+
+def test_run_search_no_crash_when_store_unset(monkeypatch):
+    scrape_result = _scrape_result(["a"])
+
+    async def _scrape_stub(params, persist):
+        return scrape_result
+
+    monkeypatch.setattr(orchestrator, "scrape", _scrape_stub)
+    monkeypatch.setattr(orchestrator, "value_listing", lambda row, scraped_at: _valuation(10.0))
+    monkeypatch.setattr(orchestrator, "estimate_sell_probability", lambda row: _sell_prob())
+
+    store_mod.set_recommendations_store(None)
+    response = asyncio.run(orchestrator.run_search(SearchParams(query="guidi")))
+
+    assert len(response.items) == 1
+
+
+def test_run_search_propagates_persist_flag_to_scraper(monkeypatch):
     calls: list[bool] = []
 
     async def _scrape_stub(params, persist):
@@ -169,9 +237,10 @@ def test_run_search_passes_persist_false_to_scraper(monkeypatch):
     monkeypatch.setattr(orchestrator, "value_listing", lambda row, scraped_at: _valuation(1.0))
     monkeypatch.setattr(orchestrator, "estimate_sell_probability", lambda row: _sell_prob())
 
-    asyncio.run(orchestrator.run_search(SearchParams(query="guidi")))
+    asyncio.run(orchestrator.run_search(SearchParams(query="guidi"), persist=False))
+    asyncio.run(orchestrator.run_search(SearchParams(query="guidi"), persist=True))
 
-    assert calls == [False]
+    assert calls == [False, True]
 
 
 def test_run_search_returns_empty_ranked_when_all_no_data(monkeypatch):
@@ -186,7 +255,7 @@ def test_run_search_returns_empty_ranked_when_all_no_data(monkeypatch):
 
     response = asyncio.run(orchestrator.run_search(SearchParams(query="guidi")))
 
-    assert response.ranked == []
+    assert response.items == []
     assert response.metadata.scraped_at_unix == scrape_result.metadata.scraped_at_unix
 
 
