@@ -11,6 +11,8 @@ import sys
 
 from dotenv import load_dotenv
 
+load_dotenv()
+
 from scraper.config import (
     CATEGORY_VALUES,
     CONDITION_VALUES,

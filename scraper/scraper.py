@@ -20,10 +20,10 @@ from scraper.algolia import (
 )
 from scraper.client import GrailedClient
 from scraper.config import (
-    ALGOLIA_HEADERS,
     ALGOLIA_LIVE_INDEX,
     ALGOLIA_SOLD_INDEX,
     ALGOLIA_SEARCH_URL,
+    get_algolia_headers,
 )
 from shared.models import (
     GrailedResultRow,
@@ -131,7 +131,11 @@ async def _search_live(
     client: GrailedClient, params: SearchParams
 ) -> list[dict[str, Any]]:
     payload = build_search_payload(params, ALGOLIA_LIVE_INDEX)
-    raw = await client.post_json(ALGOLIA_SEARCH_URL, payload, headers=ALGOLIA_HEADERS)
+    raw = await client.post_json(
+        ALGOLIA_SEARCH_URL,
+        payload,
+        headers=get_algolia_headers(),
+    )
     return extract_hits(raw)
 
 
@@ -141,7 +145,11 @@ async def _search_sold_for_each(
     out: list[list[dict[str, Any]]] = []
     for hit in live_hits:
         payload = build_sold_comparable_payload(hit, params, ALGOLIA_SOLD_INDEX)
-        raw = await client.post_json(ALGOLIA_SEARCH_URL, payload, headers=ALGOLIA_HEADERS)
+        raw = await client.post_json(
+            ALGOLIA_SEARCH_URL,
+            payload,
+            headers=get_algolia_headers(),
+        )
         sold_hits = extract_hits(raw)[: params.sold_limit]
         out.append(sold_hits)
     return out
@@ -235,7 +243,11 @@ async def _fetch_seller_stats(
 
     async def fetch(uid: int) -> tuple[int, tuple[int, int]]:
         payload = build_seller_stats_payload(uid, ALGOLIA_LIVE_INDEX)
-        raw = await client.post_json(ALGOLIA_SEARCH_URL, payload, headers=ALGOLIA_HEADERS)
+        raw = await client.post_json(
+            ALGOLIA_SEARCH_URL,
+            payload,
+            headers=get_algolia_headers(),
+        )
         return uid, parse_seller_stats(raw)
 
     results = await asyncio.gather(*(fetch(uid) for uid in user_ids))

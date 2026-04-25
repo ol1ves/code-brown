@@ -19,6 +19,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+load_dotenv()
+
 from backend.orchestrator import run_hype, run_search
 from ev.ev import set_store as set_ev_store
 from scraper.scraper import set_store as set_scraper_store
@@ -28,8 +30,6 @@ from shared.store import (
     get_recommendations_store,
     set_recommendations_store,
 )
-
-load_dotenv()
 
 API_KEY = os.environ.get("API_KEY", "").strip()
 

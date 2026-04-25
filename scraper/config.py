@@ -52,15 +52,23 @@ BROWSER_HEADERS_JSON = {
 }
 
 ALGOLIA_APP_ID = "MNRWEFSS2Q"
-ALGOLIA_API_KEY = os.environ.get("ALGOLIA_API_KEY", "").strip()
 ALGOLIA_SEARCH_URL = f"https://{ALGOLIA_APP_ID.lower()}-dsn.algolia.net/1/indexes/*/queries"
 ALGOLIA_LIVE_INDEX = "Listing_production"
 ALGOLIA_SOLD_INDEX = "Listing_sold_production"
-ALGOLIA_HEADERS = {
-    "Content-Type": "application/json",
-    "X-Algolia-API-Key": ALGOLIA_API_KEY,
-    "X-Algolia-Application-Id": ALGOLIA_APP_ID,
-}
+
+
+def get_algolia_api_key() -> str:
+    """Read the Algolia key from the current process environment."""
+    return os.environ.get("ALGOLIA_API_KEY", "").strip()
+
+
+def get_algolia_headers() -> dict[str, str]:
+    """Build Algolia headers at call time to avoid import-order issues."""
+    return {
+        "Content-Type": "application/json",
+        "X-Algolia-API-Key": get_algolia_api_key(),
+        "X-Algolia-Application-Id": ALGOLIA_APP_ID,
+    }
 ALGOLIA_FACETS = [
     "badges",
     "category",

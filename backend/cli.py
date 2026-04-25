@@ -18,6 +18,8 @@ import sys
 
 from dotenv import load_dotenv
 
+load_dotenv()
+
 from backend import orchestrator
 from ev.ev import set_store as set_ev_store
 from hype.cli import _print_summary as _print_hype_summary
@@ -145,7 +147,6 @@ def _wire_stores() -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    load_dotenv()
     parser = _build_parser()
     args = parser.parse_args(argv)
     try:
