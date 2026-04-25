@@ -16,7 +16,20 @@ export interface Recommendation {
   item_id: string
   edge_usd: number
   p_sell: number
-  live_listing: { id: string; name?: string; designer?: string; url?: string; image_urls?: string[] }
+  q50?: number
+  cost?: number
+  confidence?: "high" | "medium" | "low" | "insufficient"
+  valuation?: {
+    dist?: { q10: number; q50: number; q90: number }
+    [key: string]: unknown
+  }
+  live_listing: {
+    id: string
+    name?: string
+    designer?: string
+    url?: string
+    image_urls?: string[]
+  }
   [key: string]: unknown
 }
 
