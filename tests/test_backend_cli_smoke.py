@@ -8,15 +8,13 @@ from shared.models import (
     HypeResult,
     LiveListing,
     LivePrice,
-    RankedListing,
+    Recommendation,
     RelatedQuery,
     ScrapeMetadata,
     SearchParams,
     SearchResponse,
     Seller,
     SellerBadges,
-    SoldListing,
-    SoldPrice,
     TrendPoint,
     TrendSeries,
 )
@@ -53,24 +51,15 @@ def _search_response() -> SearchResponse:
         seller=_seller(),
         description="desc",
     )
-    sold = SoldListing(
-        id="s1",
-        url="https://www.grailed.com/listings/s1",
-        designer="Guidi",
-        name="788Z",
-        size="43",
-        condition_raw="Used",
-        location="US",
-        color="Black",
-        image_urls=[],
-        price=SoldPrice(sold_price_usd=680, shipping_price_usd=20),
-        sold_at_unix=1700000200,
-        seller=_seller(),
-        description="desc",
-    )
-    ranked = RankedListing(
-        live_listing=live,
-        sold_comparables=[sold],
+    rec = Recommendation(
+        item_id="1",
+        scraped_at_unix=1700000000,
+        query="guidi",
+        edge_usd=55.0,
+        p_sell=0.5,
+        q50=700.0,
+        cost=725.0,
+        confidence="medium",
         valuation={
             "id": "1",
             "name": "788Z",
@@ -94,6 +83,7 @@ def _search_response() -> SearchResponse:
             "num_valid_time_comps": 2,
             "num_sold_comps": 3,
         },
+        live_listing=live,
     )
     metadata = ScrapeMetadata(
         query="guidi",
@@ -103,7 +93,7 @@ def _search_response() -> SearchResponse:
         scraped_at_unix=1700000000,
         total_live_found=1,
     )
-    return SearchResponse(metadata=metadata, ranked=[ranked])
+    return SearchResponse(metadata=metadata, items=[rec])
 
 
 def _hype_result() -> HypeResult:
@@ -124,13 +114,13 @@ def _hype_result() -> HypeResult:
 def test_search_subcommand_invokes_orchestrator(monkeypatch, capsys):
     calls: list[SearchParams] = []
 
-    async def _run_search_stub(params: SearchParams):
+    async def _run_search_stub(params: SearchParams, *, persist: bool = True):
         calls.append(params)
         return _search_response()
 
     monkeypatch.setattr(cli, "_prompt_params", lambda: SearchParams(query="guidi"))
     monkeypatch.setattr(cli.orchestrator, "run_search", _run_search_stub)
-    monkeypatch.setattr("sys.argv", ["backend.cli", "search"])
+    monkeypatch.setattr("sys.argv", ["backend.cli", "search", "--no-persist"])
 
     exit_code = cli.main()
 
@@ -162,12 +152,12 @@ def test_hype_subcommand_invokes_orchestrator(monkeypatch, capsys):
 
 
 def test_search_subcommand_json_flag_produces_valid_json(monkeypatch, capsys):
-    async def _run_search_stub(params: SearchParams):
+    async def _run_search_stub(params: SearchParams, *, persist: bool = True):
         return _search_response()
 
     monkeypatch.setattr(cli, "_prompt_params", lambda: SearchParams(query="guidi"))
     monkeypatch.setattr(cli.orchestrator, "run_search", _run_search_stub)
-    monkeypatch.setattr("sys.argv", ["backend.cli", "search", "--json"])
+    monkeypatch.setattr("sys.argv", ["backend.cli", "search", "--no-persist", "--json"])
 
     exit_code = cli.main()
 
@@ -175,4 +165,4 @@ def test_search_subcommand_json_flag_produces_valid_json(monkeypatch, capsys):
     assert exit_code == 0
     payload = json.loads(out)
     assert "metadata" in payload
-    assert "ranked" in payload
+    assert "items" in payload
