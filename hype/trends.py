@@ -50,12 +50,37 @@ def _to_daily_points(frame: pd.DataFrame, term: str, range: str) -> list[TrendPo
     return points
 
 
-def fetch(term: str, range: Literal["7d", "30d", "90d"]) -> TrendSeries:
-    """Blocking fetch. Returns a TrendSeries with daily buckets, oldest -> newest."""
+def _try_fetch(term: str, range: Literal["7d", "30d", "90d"]) -> list[TrendPoint]:
     timeframe = RANGE_TO_TIMEFRAME[range]
     client = _build_client()
     client.build_payload([term], cat=0, timeframe=timeframe, geo="", gprop="")
     frame = client.interest_over_time()
-    points = _to_daily_points(frame, term=term, range=range)
+    return _to_daily_points(frame, term=term, range=range)
+
+
+def fetch(term: str, range: Literal["7d", "30d", "90d"]) -> TrendSeries:
+    """Blocking fetch. Returns a TrendSeries with daily buckets, oldest -> newest.
+
+    When the original term yields no points (common for long-tail queries
+    Google Trends has no signal on), progressively drop trailing tokens
+    until either we get data or we've exhausted broader prefixes.
+    """
+    tokens = term.split()
+    points: list[TrendPoint] = []
+    for cutoff in range_tokens(len(tokens)):
+        broader = " ".join(tokens[:cutoff])
+        if not broader:
+            continue
+        try:
+            points = _try_fetch(broader, range)
+        except Exception:
+            points = []
+        if points:
+            break
     return TrendSeries(range=range, points=points)
+
+
+def range_tokens(n: int) -> list[int]:
+    """Order: full-length first, then progressively shorter prefixes down to 1."""
+    return list(range(n, 0, -1))
 
