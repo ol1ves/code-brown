@@ -90,19 +90,29 @@ def _scrape_result(row_ids: list[str]) -> GrailedScrapeResult:
     return GrailedScrapeResult(metadata=metadata, results=[_row(i) for i in row_ids])
 
 
-def _valuation(edge_usd: float) -> dict:
+def _valuation(
+    edge_usd: float,
+    *,
+    confidence: str | None = "medium",
+    confidence_percentage: float | None = None,
+) -> dict:
     q50 = 700.0
+    metrics = {
+        "edge_usd": edge_usd,
+        "percent_under": (edge_usd / q50) * 100,
+        "effective_n": 4.0,
+    }
+    if confidence is not None:
+        metrics["confidence"] = confidence
+    if confidence_percentage is not None:
+        metrics["confidence_percentage"] = confidence_percentage
+
     return {
         "id": "x",
         "name": "x",
         "cost": 725.0,
         "dist": {"q10": 600.0, "q50": q50, "q90": 800.0},
-        "metrics": {
-            "edge_usd": edge_usd,
-            "percent_under": (edge_usd / q50) * 100,
-            "effective_n": 4.0,
-            "confidence": "medium",
-        },
+        "metrics": metrics,
     }
 
 
@@ -257,6 +267,26 @@ def test_run_search_returns_empty_ranked_when_all_no_data(monkeypatch):
 
     assert response.items == []
     assert response.metadata.scraped_at_unix == scrape_result.metadata.scraped_at_unix
+
+
+def test_run_search_derives_confidence_from_percentage(monkeypatch):
+    scrape_result = _scrape_result(["a"])
+
+    async def _scrape_stub(params, persist):
+        return scrape_result
+
+    monkeypatch.setattr(orchestrator, "scrape", _scrape_stub)
+    monkeypatch.setattr(
+        orchestrator,
+        "value_listing",
+        lambda row, scraped_at: _valuation(10.0, confidence=None, confidence_percentage=62.0),
+    )
+    monkeypatch.setattr(orchestrator, "estimate_sell_probability", lambda row: _sell_prob())
+
+    response = asyncio.run(orchestrator.run_search(SearchParams(query="guidi")))
+
+    assert len(response.items) == 1
+    assert response.items[0].confidence == "medium"
 
 
 def test_run_hype_calls_each_fetch_once_and_assembles_result(monkeypatch):
