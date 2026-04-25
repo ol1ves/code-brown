@@ -3,19 +3,14 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { CandidateCard } from "@/components/candidate-card"
 import { TrendGraph } from "@/components/trend-graph"
-import type { CandidateQuery, HypeProbeResult, TrendSeries } from "@/lib/types"
+import type { CandidateQuery, HypeProbeResult } from "@/lib/types"
+import { pickPrimarySeries } from "@/lib/trend"
 
 interface TrendStageProps {
   candidates: CandidateQuery[]
   hypeStatus: Record<string, "pending" | "probing" | "done" | "error">
   hypeResults: Record<string, HypeProbeResult>
   intentReasoning: string
-}
-
-function pickSeries(probe: HypeProbeResult): TrendSeries | null {
-  const c = [probe.series_30d, probe.series_90d, probe.series_7d]
-  for (const s of c) if (s && s.points && s.points.length > 0) return s
-  return null
 }
 
 export function TrendStage({ candidates, hypeStatus, hypeResults, intentReasoning }: TrendStageProps) {
@@ -36,13 +31,14 @@ export function TrendStage({ candidates, hypeStatus, hypeResults, intentReasonin
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {candidates.map((c) => {
               const probe = hypeResults[c.query]
-              const series = probe ? pickSeries(probe) : null
+              const series = probe ? pickPrimarySeries(probe) : null
               return (
                 <div key={c.query} className="space-y-3">
                   <CandidateCard
                     candidate={c}
                     status={hypeStatus[c.query] ?? "pending"}
                     probe={probe}
+                    showGraph={false}
                   />
                   {probe && (
                     <TrendGraph

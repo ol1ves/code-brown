@@ -4,12 +4,14 @@ import { cn } from "@/lib/utils"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { TrendGraph } from "@/components/trend-graph"
-import type { CandidateQuery, HypeProbeResult, TrendSeries } from "@/lib/types"
+import type { CandidateQuery, HypeProbeResult } from "@/lib/types"
+import { pickPrimarySeries } from "@/lib/trend"
 
 interface CandidateCardProps {
   candidate: CandidateQuery
   status: "pending" | "probing" | "done" | "error"
   probe?: HypeProbeResult
+  showGraph?: boolean
 }
 
 const confidenceColors: Record<string, string> = {
@@ -19,16 +21,8 @@ const confidenceColors: Record<string, string> = {
   insufficient: "bg-muted text-muted-foreground border-border",
 }
 
-function pickSeries(probe: HypeProbeResult): TrendSeries | null {
-  const candidates = [probe.series_30d, probe.series_90d, probe.series_7d]
-  for (const s of candidates) {
-    if (s && s.points && s.points.length > 0) return s
-  }
-  return null
-}
-
-export function CandidateCard({ candidate, status, probe }: CandidateCardProps) {
-  const series = probe ? pickSeries(probe) : null
+export function CandidateCard({ candidate, status, probe, showGraph = true }: CandidateCardProps) {
+  const series = probe ? pickPrimarySeries(probe) : null
   const scoreDisplay = probe?.score == null ? "—" : probe.score.toFixed(2)
 
   return (
@@ -62,7 +56,9 @@ export function CandidateCard({ candidate, status, probe }: CandidateCardProps) 
               </span>
             </div>
 
-            <TrendGraph series={series} momentum={probe.momentum_pct} />
+            {showGraph && (
+              <TrendGraph series={series} momentum={probe.momentum_pct} />
+            )}
 
             {probe.related && probe.related.length > 0 && (
               <div className="flex flex-wrap gap-1">
