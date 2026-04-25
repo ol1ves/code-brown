@@ -1,10 +1,12 @@
-"""Static config for the Grailed scraper. No env loading here."""
+"""Static config for the Grailed scraper."""
 
 from __future__ import annotations
 
+import os
+
 LIVE_CAP = 40
 SOLD_CAP_PER_LIVE = 40
-MAX_CONCURRENCY = 2
+MAX_CONCURRENCY = 7
 REQUEST_DELAY_RANGE = (1.0, 2.0)  # seconds, uniform jitter
 REQUEST_TIMEOUT_SEC = 20.0
 
@@ -22,16 +24,51 @@ DEFAULT_HEADERS = {
     "Referer": "https://www.grailed.com/",
 }
 
+GRAILED_BASE_URL = "https://www.grailed.com/"
+
+BROWSER_HEADERS_HTML = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"macOS"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+}
+
+BROWSER_HEADERS_JSON = {
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"macOS"',
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
+    "Referer": "https://www.grailed.com/",
+}
+
 ALGOLIA_APP_ID = "MNRWEFSS2Q"
-ALGOLIA_API_KEY = "c89dbaddf15fe70e1941a109bf7c2a3d"
 ALGOLIA_SEARCH_URL = f"https://{ALGOLIA_APP_ID.lower()}-dsn.algolia.net/1/indexes/*/queries"
 ALGOLIA_LIVE_INDEX = "Listing_production"
 ALGOLIA_SOLD_INDEX = "Listing_sold_production"
-ALGOLIA_HEADERS = {
-    "Content-Type": "application/json",
-    "X-Algolia-API-Key": ALGOLIA_API_KEY,
-    "X-Algolia-Application-Id": ALGOLIA_APP_ID,
-}
+
+
+def get_algolia_api_key() -> str:
+    """Read the Algolia key from the current process environment."""
+    return os.environ.get("ALGOLIA_API_KEY", "").strip()
+
+
+def get_algolia_headers() -> dict[str, str]:
+    """Build Algolia headers at call time to avoid import-order issues."""
+    return {
+        "Content-Type": "application/json",
+        "X-Algolia-API-Key": get_algolia_api_key(),
+        "X-Algolia-Application-Id": ALGOLIA_APP_ID,
+    }
 ALGOLIA_FACETS = [
     "badges",
     "category",

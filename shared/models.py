@@ -19,6 +19,7 @@ class SearchParams(BaseModel):
     live_limit: int = 5
     sold_limit: int = 3
     include_sold: bool = True
+    fetch_descriptions: bool = False
 
 
 class EVDistribution(BaseModel):
@@ -135,3 +136,37 @@ class HypeResult(BaseModel):
     series_90d: TrendSeries | None = None
     evidence: HypeEvidence
     fetched_at_unix: int
+
+
+class Recommendation(BaseModel):
+    """One ranked recommendation. Single shape returned by both ``/search``
+    and ``/recommendations`` so the frontend writes one renderer.
+
+    Typed top-level fields (``edge_usd``, ``p_sell``, ``q50``, ``cost``,
+    ``confidence``) are extracted from the raw EV dicts at construction time
+    so the frontend can sort/filter without digging into JSONB.
+
+    ``valuation`` and ``sell_probability`` stay as ``dict`` so the math owner
+    can add fields additively (see EV_MODEL_SPEC.md) without API changes.
+    Sold comparables are intentionally NOT included — the valuation summarizes
+    them and the raw comps aren't useful for display.
+    """
+
+    item_id: str
+    scraped_at_unix: int
+    query: str
+    edge_usd: float
+    p_sell: float
+    q50: float
+    cost: float
+    confidence: str
+    valuation: dict
+    sell_probability: dict
+    live_listing: LiveListing
+
+
+class SearchResponse(BaseModel):
+    """Full ranked search response. Returned by ``orchestrator.run_search``."""
+
+    metadata: ScrapeMetadata
+    items: list[Recommendation] = Field(default_factory=list)

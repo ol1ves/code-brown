@@ -1,11 +1,17 @@
 """Interactive CLI for testing the scraper. Prompts each SearchParams field
-and prints structured results to stdout. No Supabase coupling."""
+and prints structured results to stdout. ``--persist`` wires a Supabase-backed
+ListingStore so cache reads + write-through happen during the run."""
 
 from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from scraper.config import (
     CATEGORY_VALUES,
@@ -14,8 +20,9 @@ from scraper.config import (
     LOCATION_VALUES,
     STRATA_VALUES,
 )
-from scraper.scraper import scrape
+from scraper.scraper import scrape, set_store
 from shared.models import SearchParams
+from shared.store import ListingStore
 
 
 def _ask(prompt: str, default: str | None = None) -> str:
@@ -70,6 +77,7 @@ def _prompt_params() -> SearchParams:
     live_limit = _ask_int("Live listings limit", 5)
     include_sold = _ask_bool("Include sold comparables?", True)
     sold_limit = _ask_int("Sold comparables per live listing", 3) if include_sold else 0
+    fetch_descriptions = _ask_bool("Fetch full descriptions? (slower)", False)
 
     return SearchParams(
         query=query,
@@ -85,6 +93,7 @@ def _prompt_params() -> SearchParams:
         live_limit=live_limit,
         sold_limit=sold_limit,
         include_sold=include_sold,
+        fetch_descriptions=fetch_descriptions,
     )
 
 
@@ -102,7 +111,26 @@ def _print_result(result) -> None:
                 print(json.dumps(sold.model_dump(mode="json"), indent=2))
 
 
+def _wire_store() -> None:
+    load_dotenv()
+    url = os.environ.get("SUPABASE_URL", "").strip()
+    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    if not url or not key:
+        raise RuntimeError(
+            "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env to use --persist"
+        )
+    from supabase import create_client
+
+    set_store(ListingStore(create_client(url, key)))
+
+
 def main(argv: list[str] | None = None) -> int:
+    args = list(argv) if argv is not None else sys.argv[1:]
+    persist = "--persist" in args
+
+    if persist:
+        _wire_store()
+
     try:
         params = _prompt_params()
     except (EOFError, KeyboardInterrupt):
@@ -111,8 +139,9 @@ def main(argv: list[str] | None = None) -> int:
 
     print("\n=== running scrape ===")
     print(json.dumps(params.model_dump(mode="json"), indent=2))
+    print(f"persist={persist}")
 
-    result = asyncio.run(scrape(params))
+    result = asyncio.run(scrape(params, persist=persist))
     _print_result(result)
     return 0
 

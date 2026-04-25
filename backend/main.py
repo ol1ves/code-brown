@@ -9,8 +9,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 from starlette.responses import Response
 from supabase import create_client
 
@@ -18,11 +19,17 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+load_dotenv()
+
+from backend.orchestrator import run_hype, run_search
 from ev.ev import set_store as set_ev_store
 from scraper.scraper import set_store as set_scraper_store
-from shared.store import ListingStore
-
-load_dotenv()
+from shared.models import HypeResult, Recommendation, SearchParams, SearchResponse
+from shared.store import (
+    ListingStore,
+    get_recommendations_store,
+    set_recommendations_store,
+)
 
 API_KEY = os.environ.get("API_KEY", "").strip()
 
@@ -46,7 +53,11 @@ async def lifespan(app: FastAPI):
     app.state.store = store
     set_scraper_store(store)
     set_ev_store(store)
-    yield
+    set_recommendations_store(store)
+    try:
+        yield
+    finally:
+        set_recommendations_store(None)
 
 
 app = FastAPI(
@@ -77,3 +88,30 @@ def health():
 @app.head("/health")
 def health_head():
     return Response(status_code=200)
+
+
+class RecommendationsResponse(BaseModel):
+    items: list[Recommendation] = Field(default_factory=list)
+
+
+@app.post("/search", response_model=SearchResponse)
+async def search(params: SearchParams) -> SearchResponse:
+    return await run_search(params)
+
+
+@app.get("/hype/{term}", response_model=HypeResult)
+async def hype(term: str) -> HypeResult:
+    return await run_hype(term)
+
+
+@app.get("/recommendations", response_model=RecommendationsResponse)
+def recommendations(
+    limit: int = Query(default=50, ge=1, le=200),
+) -> RecommendationsResponse:
+    store = get_recommendations_store()
+    if store is None:
+        return RecommendationsResponse(items=[])
+    rows = store.list_recommendations(limit=limit)
+    items = [Recommendation.model_validate(r) for r in rows]
+    items.sort(key=lambda r: r.edge_usd, reverse=True)
+    return RecommendationsResponse(items=items)

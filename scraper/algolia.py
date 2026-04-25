@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 
 from scraper.config import ALGOLIA_FACETS
 from scraper.exceptions import SchemaValidationError
-from shared.models import LiveListing, SearchParams, SoldListing
+from shared.models import SearchParams, SoldListing, LiveListing
 
 
 def build_search_payload(params: SearchParams, index_name: str) -> dict[str, Any]:
@@ -24,16 +24,34 @@ def build_search_payload(params: SearchParams, index_name: str) -> dict[str, Any
 
 
 def build_sold_comparable_payload(
-    live: LiveListing, params: SearchParams, index_name: str
+    live_hit: dict[str, Any], params: SearchParams, index_name: str
 ) -> dict[str, Any]:
     """Search the sold index for comparables of a given live listing.
 
-    Scopes by designer to keep matches relevant; falls back to title query.
+    Narrows match by carrying the live hit's category, condition, size, and
+    color into the sold query. Size and color have no clean Algolia facet, so
+    they are folded into the query text. Tighter filters mean some live
+    listings yield very few sold comparables — acceptable: arbitrage targets
+    are the items that *do* surface dense sold history.
     """
+    name = str(live_hit.get("title") or "")
+    designer = _extract_designer(live_hit)
+    size = str(live_hit.get("size") or "")
+    color = str(live_hit.get("color") or "")
+    condition = str(live_hit.get("condition") or "")
+    category = str(live_hit.get("category") or "")
+    category_path = str(live_hit.get("category_path") or "")
+    department = str(live_hit.get("department") or "")
+
+    query_parts = [p for p in (name, color, size) if p]
     derived = params.model_copy(
         update={
-            "query": live.name,
-            "designer": live.designer or params.designer,
+            "query": " ".join(query_parts),
+            "designer": designer or params.designer,
+            "condition": condition or params.condition,
+            "category": category or params.category,
+            "category_path": category_path or params.category_path,
+            "department": department or params.department,
             "live_limit": params.sold_limit,
         }
     )
@@ -50,18 +68,51 @@ def extract_hits(raw: dict[str, Any]) -> list[dict[str, Any]]:
     return [h for h in hits if isinstance(h, dict)]
 
 
+def extract_hits_per_request(
+    raw: dict[str, Any], n_requests: int
+) -> list[list[dict[str, Any]]]:
+    """Multi-query response → list of hit-lists, one per request in send order."""
+    results = raw.get("results")
+    if not isinstance(results, list):
+        raise SchemaValidationError("Algolia response missing 'results'")
+    out: list[list[dict[str, Any]]] = []
+    for i in range(n_requests):
+        result = results[i] if i < len(results) else {}
+        hits = result.get("hits") if isinstance(result, dict) else None
+        out.append([h for h in hits if isinstance(h, dict)] if isinstance(hits, list) else [])
+    return out
+
+
+def extract_results_in_order(raw: dict[str, Any], n: int) -> list[dict[str, Any]]:
+    """Multi-query response → list of raw result dicts, padded to ``n`` entries."""
+    results = raw.get("results")
+    if not isinstance(results, list):
+        raise SchemaValidationError("Algolia response missing 'results'")
+    return [
+        results[i] if i < len(results) and isinstance(results[i], dict) else {}
+        for i in range(n)
+    ]
+
+
 def parse_live_hit(
     hit: dict[str, Any],
     seller_stats: dict[int, tuple[int, int]] | None = None,
+    descriptions: dict[str, str] | None = None,
 ) -> LiveListing:
-    return LiveListing.model_validate(_base_payload(hit, seller_stats))
+    payload = _base_payload(hit, seller_stats)
+    if descriptions:
+        payload["description"] = descriptions.get(payload["id"], "")
+    return LiveListing.model_validate(payload)
 
 
 def parse_sold_hit(
     hit: dict[str, Any],
     seller_stats: dict[int, tuple[int, int]] | None = None,
+    descriptions: dict[str, str] | None = None,
 ) -> SoldListing:
     payload = _base_payload(hit, seller_stats)
+    if descriptions:
+        payload["description"] = descriptions.get(payload["id"], "")
     payload["price"] = {
         "sold_price_usd": _coerce_int(hit.get("sold_price") or hit.get("price_i")),
         "shipping_price_usd": _coerce_int(hit.get("sold_shipping_price")),
@@ -82,18 +133,20 @@ def hit_user_id(hit: dict[str, Any]) -> int | None:
 
 
 def build_seller_stats_payload(user_id: int, index_name: str) -> dict[str, Any]:
-    """Single Algolia call yielding nbHits (items_for_sale_count) and all
-    accessible created_at_i timestamps (oldest used as posted_at_unix proxy).
+    """Single Algolia call yielding nbHits (items_for_sale_count) and the oldest
+    created_at_i across *all* matching listings via facet stats.
 
-    hitsPerPage is capped at Algolia's 1000 max; sellers with >1000 listings
-    yield a lower-bound approximation for posted_at_unix.
+    ``hitsPerPage=0`` ships no documents; ``facets=["created_at_i"]`` makes
+    Algolia return min/max/avg/sum across the full match set, not just the
+    1000-doc page. Smaller payload, more accurate posted_at_unix.
     """
     encoded = urlencode(
         {
             "filters": f"user.id:{user_id}",
-            "hitsPerPage": "1000",
+            "hitsPerPage": "0",
             "page": "0",
-            "attributesToRetrieve": json.dumps(["created_at_i"]),
+            "facets": json.dumps(["created_at_i"]),
+            "attributesToRetrieve": json.dumps([]),
             "attributesToHighlight": json.dumps([]),
         }
     )
@@ -106,14 +159,15 @@ def parse_seller_stats(raw: dict[str, Any]) -> tuple[int, int]:
     if not isinstance(results, list) or not results:
         return (0, 0)
     res = results[0]
+    if not isinstance(res, dict):
+        return (0, 0)
     nb_hits = _coerce_int(res.get("nbHits"))
-    timestamps = [
-        _coerce_int(h.get("created_at_i"))
-        for h in res.get("hits", [])
-        if isinstance(h, dict) and h.get("created_at_i")
-    ]
-    timestamps = [t for t in timestamps if t > 0]
-    posted_at = min(timestamps) if timestamps else 0
+    posted_at = 0
+    facets_stats = res.get("facets_stats")
+    if isinstance(facets_stats, dict):
+        ts_stats = facets_stats.get("created_at_i")
+        if isinstance(ts_stats, dict):
+            posted_at = _coerce_int(ts_stats.get("min"))
     return (nb_hits, posted_at)
 
 
