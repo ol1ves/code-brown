@@ -26,38 +26,49 @@ from shared.models import (
 from shared.store import get_recommendations_store
 
 
-def _normalize_confidence(metrics: dict) -> str:
-    """Return a stable confidence label from EV metrics.
+async def run_search(
+    params: SearchParams,
+    *,
+    persist: bool = True,
+    surface_no_data: bool = False,
+) -> SearchResponse:
+    """Run scrape + valuation + ranking.
 
-    EV recently switched from a categorical ``confidence`` key to numeric
-    ``confidence_percentage``. Keep backend output stable for both shapes.
+    ``surface_no_data=True`` emits Recommendations even when the valuation
+    pipeline returns no_data (no usable sold comps), with neutral metrics so
+    the agent UI can still display the live listing. Persistence still skips
+    no_data rows so /recommendations stays clean.
     """
-    legacy = metrics.get("confidence")
-    if isinstance(legacy, str) and legacy:
-        return legacy
-
-    percentage = metrics.get("confidence_percentage")
-    if isinstance(percentage, (int, float)):
-        value = float(percentage)
-        if value >= 75:
-            return "high"
-        if value >= 50:
-            return "medium"
-        if value >= 25:
-            return "low"
-    return "insufficient"
-
-
-async def run_search(params: SearchParams, *, persist: bool = True) -> SearchResponse:
     scrape_result = await scrape(params, persist=persist)
     scraped_at = scrape_result.metadata.scraped_at_unix
     items: list[Recommendation] = []
+    no_data_items: list[Recommendation] = []
     for row in scrape_result.results:
         row_dict = row.model_dump(mode="json")
         valuation = value_listing(row_dict, scraped_at)
-        if valuation.get("status") == "no_data":
-            continue
         sell_prob = estimate_sell_probability(row_dict)
+        if valuation.get("status") == "no_data":
+            if surface_no_data:
+                live_total = (
+                    row.live_listing.price.listing_price_usd
+                    + row.live_listing.price.shipping_price_usd
+                )
+                no_data_items.append(
+                    Recommendation(
+                        item_id=row.live_listing.id,
+                        scraped_at_unix=scraped_at,
+                        query=params.query,
+                        edge_usd=0.0,
+                        p_sell=sell_prob["p_sell"],
+                        q50=0.0,
+                        cost=float(live_total),
+                        confidence="no_data",
+                        valuation=valuation,
+                        sell_probability=sell_prob,
+                        live_listing=row.live_listing,
+                    )
+                )
+            continue
         metrics = valuation["metrics"]
         items.append(
             Recommendation(
@@ -75,11 +86,18 @@ async def run_search(params: SearchParams, *, persist: bool = True) -> SearchRes
             )
         )
     items.sort(key=lambda r: r.p_sell * r.edge_usd, reverse=True)
+    if surface_no_data:
+        no_data_items.sort(key=lambda r: r.p_sell, reverse=True)
+        items = items + no_data_items
     response = SearchResponse(metadata=scrape_result.metadata, items=items)
     if persist:
         store = get_recommendations_store()
         if store is not None:
-            store.save_recommendations(response=response, params=params)
+            valued_only = SearchResponse(
+                metadata=scrape_result.metadata,
+                items=[r for r in items if r.confidence != "no_data"],
+            )
+            store.save_recommendations(response=valued_only, params=params)
     return response
 
 
@@ -108,8 +126,8 @@ async def run_agent_stream(
     intent_text: str,
     seed_params: SearchParams | None = None,
     per_hype_timeout_s: float = 15.0,
-    per_search_timeout_s: float = 25.0,
-    whole_run_timeout_s: float = 60.0,
+    per_search_timeout_s: float = 90.0,
+    whole_run_timeout_s: float = 240.0,
 ):
     started = monotonic()
     if seed_params is not None:
@@ -198,11 +216,17 @@ async def run_agent_stream(
 
     async def _search(query_text: str):
         async with search_semaphore:
-            base_params = seed_params.model_copy() if seed_params is not None else SearchParams()
+            if seed_params is not None:
+                base_params = seed_params.model_copy()
+            else:
+                base_params = SearchParams(live_limit=40, sold_limit=40)
             base_params.query = query_text
             started_q = monotonic()
             try:
-                response = await asyncio.wait_for(run_search(base_params), timeout=per_search_timeout_s)
+                response = await asyncio.wait_for(
+                    run_search(base_params, surface_no_data=True),
+                    timeout=per_search_timeout_s,
+                )
                 return {"query": query_text, "duration_ms": int((monotonic() - started_q) * 1000), "items": response.items[:5], "error": None}
             except asyncio.TimeoutError:
                 return {"query": query_text, "duration_ms": 0, "items": [], "error": "Search timed out"}
