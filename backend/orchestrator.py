@@ -194,14 +194,21 @@ async def run_agent_stream(
                     related_items = []
                 score_value, confidence = score.compute(series_30d.points)
                 momentum = 0
-                if series_30d and len(series_30d.points) >= 14:
+                if series_30d and len(series_30d.points) >= 8:
                     intensities = [float(p.intensity) for p in series_30d.points]
-                    recent = intensities[-7:]
-                    baseline = intensities[:-7]
-                    recent_mean = sum(recent) / len(recent)
+                    split = max(1, len(intensities) // 2)
+                    baseline = intensities[:split]
+                    recent = intensities[split:]
+                    recent_mean = sum(recent) / len(recent) if recent else 0.0
                     baseline_mean = sum(baseline) / len(baseline) if baseline else 0.0
                     if baseline_mean > 0:
                         momentum = int(round((recent_mean - baseline_mean) / baseline_mean * 100))
+                    elif recent_mean > 0:
+                        # Term emerged from zero baseline — definitively rising.
+                        momentum = 200
+                    elif recent_mean == 0 and baseline_mean == 0:
+                        momentum = 0
+                    momentum = max(-100, min(999, momentum))
                 return query_text, HypeProbeResult(
                     query=query_text,
                     score=score_value,
