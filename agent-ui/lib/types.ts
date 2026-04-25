@@ -18,7 +18,7 @@ export interface Recommendation {
   p_sell: number
   q50?: number
   cost?: number
-  confidence?: "high" | "medium" | "low" | "insufficient"
+  confidence?: "high" | "medium" | "low" | "insufficient" | "no_data"
   valuation?: {
     dist?: { q10: number; q50: number; q90: number }
     [key: string]: unknown
@@ -36,6 +36,7 @@ export interface Recommendation {
 export interface CandidateQuery {
   query: string
   why: string
+  hype_term?: string
 }
 
 export interface TrendPoint {
@@ -50,6 +51,7 @@ export interface TrendSeries {
 
 export interface HypeProbeResult {
   query: string
+  hype_term?: string
   score: number | null
   confidence: "high" | "medium" | "low" | "insufficient"
   momentum_pct: number

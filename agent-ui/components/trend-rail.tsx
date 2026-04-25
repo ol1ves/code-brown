@@ -30,10 +30,13 @@ export function TrendRail({ candidates, hypeResults }: TrendRailProps) {
           const probe = hypeResults[c.query]
           if (!probe) return null
           const series = pickSeries(probe)
+          const probedTerm = probe.hype_term || c.query
           return (
             <div key={c.query} className="space-y-1">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-medium truncate">{c.query}</span>
+                <span className="text-xs font-medium truncate" title={`probed: ${probedTerm}`}>
+                  {probedTerm}
+                </span>
                 <Badge
                   variant="outline"
                   className={cn(

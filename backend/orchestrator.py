@@ -169,55 +169,88 @@ async def run_agent_stream(
     hype_errors: list[dict] = []
     hype_semaphore = asyncio.Semaphore(1)
 
-    async def _probe(query_text: str):
-        async with hype_semaphore:
-            try:
+    # Dedup Trends API hits across candidates that share a hype_term.
+    term_cache: dict[str, dict] = {}
+    term_locks: dict[str, asyncio.Lock] = {}
+
+    def _compute_momentum(series_30d) -> int:
+        if not series_30d or len(series_30d.points) < 14:
+            return 0
+        intensities = [float(p.intensity) for p in series_30d.points]
+        recent = intensities[-7:]
+        baseline = intensities[:-7]
+        recent_mean = sum(recent) / len(recent)
+        baseline_mean = sum(baseline) / len(baseline) if baseline else 0.0
+        if baseline_mean <= 0:
+            return 0
+        return int(round((recent_mean - baseline_mean) / baseline_mean * 100))
+
+    async def _fetch_term(hype_term: str) -> dict:
+        """Fetch (or reuse) Trends data for one hype_term. Cached by term."""
+        if hype_term in term_cache:
+            return term_cache[hype_term]
+        lock = term_locks.setdefault(hype_term, asyncio.Lock())
+        async with lock:
+            if hype_term in term_cache:
+                return term_cache[hype_term]
+            async with hype_semaphore:
                 series_30d = await asyncio.wait_for(
-                    asyncio.to_thread(trends.fetch, query_text, "30d"),
+                    asyncio.to_thread(trends.fetch, hype_term, "30d"),
                     timeout=per_hype_timeout_s,
                 )
                 series_7d = None
                 if not series_30d.points:
                     try:
                         series_7d = await asyncio.wait_for(
-                            asyncio.to_thread(trends.fetch, query_text, "7d"),
+                            asyncio.to_thread(trends.fetch, hype_term, "7d"),
                             timeout=per_hype_timeout_s,
                         )
                     except Exception:
                         series_7d = None
                 try:
                     related_items = await asyncio.wait_for(
-                        asyncio.to_thread(related.fetch, query_text),
+                        asyncio.to_thread(related.fetch, hype_term),
                         timeout=per_hype_timeout_s,
                     )
                 except Exception:
                     related_items = []
-                score_value, confidence = score.compute(series_30d.points)
-                momentum = 0
-                if series_30d and len(series_30d.points) >= 14:
-                    intensities = [float(p.intensity) for p in series_30d.points]
-                    recent = intensities[-7:]
-                    baseline = intensities[:-7]
-                    recent_mean = sum(recent) / len(recent)
-                    baseline_mean = sum(baseline) / len(baseline) if baseline else 0.0
-                    if baseline_mean > 0:
-                        momentum = int(round((recent_mean - baseline_mean) / baseline_mean * 100))
-                return query_text, HypeProbeResult(
-                    query=query_text,
-                    score=score_value,
-                    confidence=confidence,
-                    momentum_pct=momentum,
-                    related=related_items,
-                    series_30d=series_30d,
-                    series_7d=series_7d,
-                )
-            except Exception as exc:
-                return query_text, exc
+            score_value, confidence = score.compute(series_30d.points)
+            payload = {
+                "series_30d": series_30d,
+                "series_7d": series_7d,
+                "related": related_items,
+                "score": score_value,
+                "confidence": confidence,
+                "momentum": _compute_momentum(series_30d),
+            }
+            term_cache[hype_term] = payload
+            return payload
+
+    async def _probe(candidate):
+        hype_term = (candidate.hype_term or candidate.query).strip()
+        try:
+            data = await _fetch_term(hype_term)
+            return candidate.query, HypeProbeResult(
+                query=candidate.query,
+                hype_term=hype_term,
+                score=data["score"],
+                confidence=data["confidence"],
+                momentum_pct=data["momentum"],
+                related=data["related"],
+                series_30d=data["series_30d"],
+                series_7d=data["series_7d"],
+            )
+        except Exception as exc:
+            return candidate.query, exc
 
     probe_tasks = []
     for c in candidates:
-        yield {"type": "hype_started", "query": c.query}
-        probe_tasks.append(asyncio.create_task(_probe(c.query)))
+        yield {
+            "type": "hype_started",
+            "query": c.query,
+            "hype_term": (c.hype_term or c.query),
+        }
+        probe_tasks.append(asyncio.create_task(_probe(c)))
     for task in asyncio.as_completed(probe_tasks):
         if monotonic() - started > whole_run_timeout_s:
             break
@@ -237,6 +270,7 @@ async def run_agent_stream(
         for c in candidates:
             fallback = HypeProbeResult(
                 query=c.query,
+                hype_term=(c.hype_term or c.query),
                 score=None,
                 confidence="insufficient",
                 momentum_pct=0,

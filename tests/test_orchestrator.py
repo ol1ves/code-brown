@@ -341,19 +341,26 @@ def test_run_hype_calls_each_fetch_once_and_assembles_result(monkeypatch):
 
 def test_run_agent_stream_happy_path(monkeypatch):
     async def _expand_stub(intent_text: str, *, n: int = 6):
-        return "intent ok", [orchestrator.CandidateQuery(query="q1", why="w1"), orchestrator.CandidateQuery(query="q2", why="w2")]
+        return "intent ok", [
+            orchestrator.CandidateQuery(query="q1", why="w1", hype_term="brand_x"),
+            orchestrator.CandidateQuery(query="q2", why="w2", hype_term="brand_x"),
+        ]
 
-    async def _run_hype_stub(term: str):
-        return orchestrator.HypeResult(
-            term=term,
-            score=0.47,
-            confidence="high",
-            series_30d=TrendSeries(range="30d", points=[TrendPoint(day_unix=1700000000, intensity=20)]),
-            series_7d=TrendSeries(range="7d", points=[TrendPoint(day_unix=1700000000, intensity=42)]),
-            series_90d=TrendSeries(range="90d", points=[TrendPoint(day_unix=1700000000, intensity=4)]),
-            evidence=HypeEvidence(related=[]),
-            fetched_at_unix=1700000000,
-        )
+    fetch_calls: list[tuple[str, str]] = []
+
+    def _trends_fetch(term: str, range_value: str):
+        fetch_calls.append((term, range_value))
+        return TrendSeries(range=range_value, points=[TrendPoint(day_unix=1700000000, intensity=20)])
+
+    def _related_fetch(term: str):
+        return []
+
+    def _compute(points):
+        return 0.5, "high"
+
+    monkeypatch.setattr(orchestrator.trends, "fetch", _trends_fetch)
+    monkeypatch.setattr(orchestrator.related, "fetch", _related_fetch)
+    monkeypatch.setattr(orchestrator.score, "compute", _compute)
 
     async def _plan_stub(*, intent_text: str, candidates: list[dict], hype_results: dict):
         yield {"type": "plan_thinking", "delta": "thinking"}
@@ -369,7 +376,7 @@ def test_run_agent_stream_happy_path(monkeypatch):
         yield {"type": "summary_thinking", "delta": "summary..."}
         yield {"type": "summary", "text": "done", "highlights": []}
 
-    async def _run_search_stub(params: SearchParams):
+    async def _run_search_stub(params: SearchParams, *, surface_no_data: bool = False):
         metadata = ScrapeMetadata(
             query=params.query,
             categories=["menswear"],
@@ -394,7 +401,6 @@ def test_run_agent_stream_happy_path(monkeypatch):
         return orchestrator.SearchResponse(metadata=metadata, items=[rec])
 
     monkeypatch.setattr(orchestrator, "expand_intent_candidates", _expand_stub)
-    monkeypatch.setattr(orchestrator, "run_hype", _run_hype_stub)
     monkeypatch.setattr(orchestrator, "stream_plan", _plan_stub)
     monkeypatch.setattr(orchestrator, "stream_summary", _summary_stub)
     monkeypatch.setattr(orchestrator, "run_search", _run_search_stub)
@@ -418,22 +424,26 @@ def test_run_agent_stream_happy_path(monkeypatch):
     assert "summary" in types
     assert types[-1] == "done"
 
+    # Both candidates share hype_term="brand_x", so trends should be fetched
+    # at most once for the 30d range thanks to dedup.
+    brand_x_30d = [c for c in fetch_calls if c == ("brand_x", "30d")]
+    assert len(brand_x_30d) == 1
+
+    # hype_done events expose the hype_term that was actually probed.
+    hype_done_events = [e for e in events if e["type"] == "hype_done"]
+    assert all(e["hype_term"] == "brand_x" for e in hype_done_events)
+
 
 def test_run_agent_stream_timeout_emits_non_terminal_search_error(monkeypatch):
     async def _expand_stub(intent_text: str, *, n: int = 6):
-        return "intent ok", [orchestrator.CandidateQuery(query="slow query", why="w")]
+        return "intent ok", [orchestrator.CandidateQuery(query="slow query", why="w", hype_term="slow")]
 
-    async def _run_hype_stub(term: str):
-        return orchestrator.HypeResult(
-            term=term,
-            score=0.2,
-            confidence="medium",
-            series_30d=TrendSeries(range="30d", points=[TrendPoint(day_unix=1700000000, intensity=10)]),
-            series_7d=TrendSeries(range="7d", points=[TrendPoint(day_unix=1700000000, intensity=10)]),
-            series_90d=TrendSeries(range="90d", points=[TrendPoint(day_unix=1700000000, intensity=10)]),
-            evidence=HypeEvidence(related=[]),
-            fetched_at_unix=1700000000,
-        )
+    def _trends_fetch(term: str, range_value: str):
+        return TrendSeries(range=range_value, points=[TrendPoint(day_unix=1700000000, intensity=10)])
+
+    monkeypatch.setattr(orchestrator.trends, "fetch", _trends_fetch)
+    monkeypatch.setattr(orchestrator.related, "fetch", lambda term: [])
+    monkeypatch.setattr(orchestrator.score, "compute", lambda points: (0.2, "medium"))
 
     async def _plan_stub(*, intent_text: str, candidates: list[dict], hype_results: dict):
         yield {
@@ -447,7 +457,7 @@ def test_run_agent_stream_timeout_emits_non_terminal_search_error(monkeypatch):
     async def _summary_stub(state):
         yield {"type": "summary", "text": "done", "highlights": []}
 
-    async def _run_search_stub(params: SearchParams):
+    async def _run_search_stub(params: SearchParams, *, surface_no_data: bool = False):
         await asyncio.sleep(0.01)
         return orchestrator.SearchResponse(
             metadata=ScrapeMetadata(
@@ -462,7 +472,6 @@ def test_run_agent_stream_timeout_emits_non_terminal_search_error(monkeypatch):
         )
 
     monkeypatch.setattr(orchestrator, "expand_intent_candidates", _expand_stub)
-    monkeypatch.setattr(orchestrator, "run_hype", _run_hype_stub)
     monkeypatch.setattr(orchestrator, "stream_plan", _plan_stub)
     monkeypatch.setattr(orchestrator, "stream_summary", _summary_stub)
     monkeypatch.setattr(orchestrator, "run_search", _run_search_stub)

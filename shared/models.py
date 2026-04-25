@@ -180,6 +180,7 @@ class AgentRunRequest(BaseModel):
 class CandidateQuery(BaseModel):
     query: str
     why: str
+    hype_term: str = ""
 
 
 class PlanPickedQuery(BaseModel):
@@ -212,6 +213,7 @@ class AgentSummary(BaseModel):
 
 class HypeProbeResult(BaseModel):
     query: str
+    hype_term: str = ""
     score: float | None
     confidence: Literal["high", "medium", "low", "insufficient"]
     momentum_pct: int

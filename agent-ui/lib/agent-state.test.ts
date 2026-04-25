@@ -59,4 +59,32 @@ describe("reduceAgentEvent", () => {
     })
     expect(state.hypeStatus["q1"]).toBe("done")
   })
+
+  it("normalizes score to 0 for no_data items instead of penalizing by p_sell", () => {
+    const state = reduceAgentEvent(initialState, {
+      type: "query_done",
+      query: "q1",
+      items: [
+        {
+          item_id: "no-data",
+          edge_usd: 0,
+          p_sell: 0.33,
+          confidence: "no_data",
+          live_listing: { id: "id-no-data", name: "No data" },
+        },
+        {
+          item_id: "valued",
+          edge_usd: 50,
+          p_sell: 0.4,
+          confidence: "high",
+          live_listing: { id: "id-valued", name: "Valued" },
+        },
+      ],
+    })
+    const ranked = rankedList(state)
+    const noData = ranked.find((r) => r.item.item_id === "no-data")
+    const valued = ranked.find((r) => r.item.item_id === "valued")
+    expect(noData?.score).toBe(0)
+    expect(valued?.score).toBe(20)
+  })
 })

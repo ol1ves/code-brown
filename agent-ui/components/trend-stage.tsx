@@ -48,7 +48,7 @@ export function TrendStage({ candidates, hypeStatus, hypeResults, intentReasonin
                     <TrendGraph
                       series={series}
                       momentum={probe.momentum_pct}
-                      title={`${c.query} (${series?.range ?? "—"})`}
+                      title={`${probe.hype_term || c.query} (${series?.range ?? "—"})`}
                       height={160}
                     />
                   )}
