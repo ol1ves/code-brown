@@ -176,7 +176,7 @@ async def run_agent_stream(
                 momentum = 0
                 if result.series_7d and result.series_7d.points and result.series_90d and result.series_90d.points:
                     momentum = int(result.series_7d.points[-1].intensity - result.series_90d.points[-1].intensity)
-                return HypeProbeResult(
+                return query_text, HypeProbeResult(
                     query=query_text,
                     score=result.score,
                     confidence=result.confidence,
@@ -184,7 +184,7 @@ async def run_agent_stream(
                     related=result.evidence.related,
                 )
             except Exception as exc:
-                return exc
+                return query_text, exc
 
     probe_tasks = []
     for c in candidates:
@@ -193,17 +193,29 @@ async def run_agent_stream(
     for task in asyncio.as_completed(probe_tasks):
         if monotonic() - started > whole_run_timeout_s:
             break
-        probe = await task
+        query_text, probe = await task
         if isinstance(probe, Exception):
-            hype_errors.append({"message": str(probe)})
-            yield {"type": "error", "stage": "hype", "message": str(probe)}
+            hype_errors.append({"query": query_text, "message": str(probe)})
+            yield {"type": "error", "stage": "hype", "query": query_text, "message": str(probe)}
             continue
         hype_results[probe.query] = probe
         yield {"type": "hype_done", **probe.model_dump(mode="json")}
     if not hype_results:
-        yield {"type": "error", "stage": "hype", "message": "All hype probes failed"}
-        yield {"type": "done", "total_duration_ms": int((monotonic() - started) * 1000), "queries_run": 0, "queries_failed": len(hype_errors), "total_items": 0}
-        return
+        yield {
+            "type": "error",
+            "stage": "hype",
+            "message": "All hype probes failed; continuing with unscored candidates",
+        }
+        for c in candidates:
+            fallback = HypeProbeResult(
+                query=c.query,
+                score=None,
+                confidence="insufficient",
+                momentum_pct=0,
+                related=[],
+            )
+            hype_results[c.query] = fallback
+            yield {"type": "hype_done", **fallback.model_dump(mode="json")}
 
     plan_event: dict | None = None
     try:
