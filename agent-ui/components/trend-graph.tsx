@@ -40,11 +40,14 @@ export function TrendGraph({
     momentum > 0 ? "hsl(var(--primary))"
     : momentum < 0 ? "hsl(var(--destructive))"
     : "hsl(var(--muted-foreground))"
-  const gradientId = `trend-${reactId}`
+  // React 19's useId() returns characters like « » : that are invalid in SVG url(#...)
+  // refs, which silently breaks the gradient fill. Sanitize to ASCII word chars.
+  const safeId = reactId.replace(/[^a-zA-Z0-9]/g, "")
+  const gradientId = `trend-${safeId}`
   const max = Math.max(...data.map((d) => d.v), 1)
 
   return (
-    <div className={cn("rounded border border-border bg-muted/20 p-2", className)}>
+    <div className={cn("rounded border border-border bg-background/40 p-2", className)}>
       {showHeader && (
         <div className="flex items-center justify-between mb-1">
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
@@ -58,8 +61,8 @@ export function TrendGraph({
           <AreaChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
             <defs>
               <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={stroke} stopOpacity={0.4} />
-                <stop offset="100%" stopColor={stroke} stopOpacity={0} />
+                <stop offset="0%" stopColor={stroke} stopOpacity={0.7} />
+                <stop offset="100%" stopColor={stroke} stopOpacity={0.05} />
               </linearGradient>
             </defs>
             <XAxis dataKey="t" hide />
@@ -81,10 +84,11 @@ export function TrendGraph({
               type="monotone"
               dataKey="v"
               stroke={stroke}
-              strokeWidth={1.5}
+              strokeWidth={2.5}
               fill={`url(#${gradientId})`}
               isAnimationActive={false}
               dot={false}
+              activeDot={{ r: 4, stroke, strokeWidth: 1, fill: "hsl(var(--background))" }}
             />
           </AreaChart>
         </ResponsiveContainer>
