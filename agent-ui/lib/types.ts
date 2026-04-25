@@ -25,12 +25,25 @@ export interface CandidateQuery {
   why: string
 }
 
+export interface TrendPoint {
+  day_unix: number
+  intensity: number
+}
+
+export interface TrendSeries {
+  range: "7d" | "30d" | "90d"
+  points: TrendPoint[]
+}
+
 export interface HypeProbeResult {
   query: string
   score: number | null
   confidence: "high" | "medium" | "low" | "insufficient"
   momentum_pct: number
   related: Array<{ query: string; value: number; kind: "rising" | "top"; is_breakout: boolean }>
+  series_30d?: TrendSeries | null
+  series_7d?: TrendSeries | null
+  series_90d?: TrendSeries | null
 }
 
 export type AgentEvent = {

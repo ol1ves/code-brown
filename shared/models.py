@@ -216,6 +216,9 @@ class HypeProbeResult(BaseModel):
     confidence: Literal["high", "medium", "low", "insufficient"]
     momentum_pct: int
     related: list[RelatedQuery] = Field(default_factory=list)
+    series_30d: TrendSeries | None = None
+    series_7d: TrendSeries | None = None
+    series_90d: TrendSeries | None = None
 
 
 class AgentRunState(BaseModel):

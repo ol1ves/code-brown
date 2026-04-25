@@ -167,21 +167,49 @@ async def run_agent_stream(
 
     hype_results: dict[str, HypeProbeResult] = {}
     hype_errors: list[dict] = []
-    hype_semaphore = asyncio.Semaphore(4)
+    hype_semaphore = asyncio.Semaphore(1)
 
     async def _probe(query_text: str):
         async with hype_semaphore:
             try:
-                result = await asyncio.wait_for(run_hype(query_text), timeout=per_hype_timeout_s)
+                series_30d = await asyncio.wait_for(
+                    asyncio.to_thread(trends.fetch, query_text, "30d"),
+                    timeout=per_hype_timeout_s,
+                )
+                series_7d = None
+                if not series_30d.points:
+                    try:
+                        series_7d = await asyncio.wait_for(
+                            asyncio.to_thread(trends.fetch, query_text, "7d"),
+                            timeout=per_hype_timeout_s,
+                        )
+                    except Exception:
+                        series_7d = None
+                try:
+                    related_items = await asyncio.wait_for(
+                        asyncio.to_thread(related.fetch, query_text),
+                        timeout=per_hype_timeout_s,
+                    )
+                except Exception:
+                    related_items = []
+                score_value, confidence = score.compute(series_30d.points)
                 momentum = 0
-                if result.series_7d and result.series_7d.points and result.series_90d and result.series_90d.points:
-                    momentum = int(result.series_7d.points[-1].intensity - result.series_90d.points[-1].intensity)
+                if series_30d and len(series_30d.points) >= 14:
+                    intensities = [float(p.intensity) for p in series_30d.points]
+                    recent = intensities[-7:]
+                    baseline = intensities[:-7]
+                    recent_mean = sum(recent) / len(recent)
+                    baseline_mean = sum(baseline) / len(baseline) if baseline else 0.0
+                    if baseline_mean > 0:
+                        momentum = int(round((recent_mean - baseline_mean) / baseline_mean * 100))
                 return query_text, HypeProbeResult(
                     query=query_text,
-                    score=result.score,
-                    confidence=result.confidence,
+                    score=score_value,
+                    confidence=confidence,
                     momentum_pct=momentum,
-                    related=result.evidence.related,
+                    related=related_items,
+                    series_30d=series_30d,
+                    series_7d=series_7d,
                 )
             except Exception as exc:
                 return query_text, exc
