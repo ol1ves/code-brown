@@ -1,11 +1,14 @@
-"""FastAPI app: public GET /health; all other routes require Bearer token from API_KEY env."""
+"""FastAPI app.
+
+Public route: ``/health``.
+Authenticated routes: ``/search`` and ``/recommendations``.
+"""
 
 from __future__ import annotations
 
 import os
 import secrets
 import sys
-import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -13,7 +16,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from starlette.responses import Response, StreamingResponse
+from starlette.responses import Response
 from supabase import create_client
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -22,12 +25,12 @@ if str(_REPO_ROOT) not in sys.path:
 
 load_dotenv()
 
-from backend.orchestrator import run_agent_stream, run_hype, run_search
+from backend.logging_setup import configure_logging
+from backend.pipeline.context import RunContext
+from backend.pipeline.search import run_search
 from ev.ev import set_store as set_ev_store
 from scraper.scraper import set_store as set_scraper_store
 from shared.models import (
-    AgentRunRequest,
-    HypeResult,
     Recommendation,
     SearchParams,
     SearchResponse,
@@ -47,6 +50,7 @@ def _is_public_path(path: str) -> bool:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    configure_logging(level=os.environ.get("LOG_LEVEL", "INFO"))
     if not API_KEY:
         raise RuntimeError("API_KEY environment variable must be set and non-empty")
     supabase_url = os.environ.get("SUPABASE_URL", "").strip()
@@ -61,10 +65,7 @@ async def lifespan(app: FastAPI):
     set_scraper_store(store)
     set_ev_store(store)
     set_recommendations_store(store)
-    try:
-        yield
-    finally:
-        set_recommendations_store(None)
+    yield
 
 
 app = FastAPI(
@@ -103,12 +104,8 @@ class RecommendationsResponse(BaseModel):
 
 @app.post("/search", response_model=SearchResponse)
 async def search(params: SearchParams) -> SearchResponse:
-    return await run_search(params)
-
-
-@app.get("/hype/{term}", response_model=HypeResult)
-async def hype(term: str) -> HypeResult:
-    return await run_hype(term)
+    ctx = RunContext()
+    return await run_search(params, ctx)
 
 
 @app.get("/recommendations", response_model=RecommendationsResponse)
@@ -120,25 +117,4 @@ def recommendations(
         return RecommendationsResponse(items=[])
     rows = store.list_recommendations(limit=limit)
     items = [Recommendation.model_validate(r) for r in rows]
-    items.sort(key=lambda r: r.edge_usd, reverse=True)
     return RecommendationsResponse(items=items)
-
-
-@app.post("/agent/run")
-async def agent_run(request: AgentRunRequest):
-    async def _sse():
-        async for event in run_agent_stream(
-            intent_text=request.intent_text,
-            seed_params=request.seed_params,
-        ):
-            yield f"data: {json.dumps(event)}\n\n"
-
-    return StreamingResponse(
-        _sse(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
