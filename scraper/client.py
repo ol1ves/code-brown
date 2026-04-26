@@ -28,7 +28,6 @@ from scraper.config import (
 )
 from scraper.exceptions import GrailedRateLimitExceeded
 
-
 class _RateLimited(Exception):
     """Internal marker exception for HTTP 429."""
 

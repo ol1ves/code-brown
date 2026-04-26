@@ -260,13 +260,19 @@ async def _fetch_seller_stats(
     for uid in ordered_uids:
         payload = build_seller_stats_payload(uid, ALGOLIA_LIVE_INDEX)
         merged_requests.extend(payload["requests"])
-    raw = await client.post_json(
-        ALGOLIA_SEARCH_URL,
-        {"requests": merged_requests},
-        headers=get_algolia_headers(),
-        throttle=False,
-    )
-    results = extract_results_in_order(raw, len(ordered_uids))
+    # Algolia multi-query endpoint enforces a max requests-per-call.
+    # Chunk to avoid 400: "Too many queries in multi query request".
+    max_per_call = 50
+    results: list[dict[str, Any]] = []
+    for i in range(0, len(merged_requests), max_per_call):
+        chunk = merged_requests[i : i + max_per_call]
+        raw = await client.post_json(
+            ALGOLIA_SEARCH_URL,
+            {"requests": chunk},
+            headers=get_algolia_headers(),
+            throttle=False,
+        )
+        results.extend(extract_results_in_order(raw, len(chunk)))
     return {
         uid: parse_seller_stats({"results": [result]})
         for uid, result in zip(ordered_uids, results)
