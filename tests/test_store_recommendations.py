@@ -99,17 +99,19 @@ def _live(item_id: str) -> LiveListing:
     )
 
 
-def _valuation(edge_usd: float, q50: float, cost: float, confidence: str) -> dict:
+def _valuation(expected_profit_grailed: float, q50: float, buy_cost: float, confidence_pct: float) -> dict:
     return {
         "id": "x",
         "name": "x",
-        "cost": cost,
+        "buy_cost": buy_cost,
         "dist": {"q10": q50 - 100, "q50": q50, "q90": q50 + 100},
         "metrics": {
-            "edge_usd": edge_usd,
+            "edge_usd": q50 - buy_cost,
+            "expected_profit_grailed": expected_profit_grailed,
+            "expected_profit_off_grailed": expected_profit_grailed + 30.0,
             "percent_under": 0.0,
             "effective_n": 4.0,
-            "confidence": confidence,
+            "confidence_percentage": confidence_pct,
         },
         "extra_future_field": "ignored-by-store-but-survives-as-jsonb",
     }
@@ -130,18 +132,24 @@ def _sell_prob(p_sell: float) -> dict:
     }
 
 
-def _ranked(item_id: str, edge_usd: float, p_sell: float, confidence: str = "medium",
+def _ranked(item_id: str, expected_profit_grailed: float, p_sell: float, confidence_pct: float = 55.0,
             scraped_at_unix: int = 1700000999) -> Recommendation:
     return Recommendation(
         item_id=item_id,
         scraped_at_unix=scraped_at_unix,
         query="guidi",
-        edge_usd=edge_usd,
+        expected_profit_grailed=expected_profit_grailed,
+        expected_profit_off_grailed=expected_profit_grailed + 30.0,
+        buy_cost=725.0,
         p_sell=p_sell,
         q50=700.0,
-        cost=725.0,
-        confidence=confidence,
-        valuation=_valuation(edge_usd=edge_usd, q50=700.0, cost=725.0, confidence=confidence),
+        confidence_pct=confidence_pct,
+        valuation=_valuation(
+            expected_profit_grailed=expected_profit_grailed,
+            q50=700.0,
+            buy_cost=725.0,
+            confidence_pct=confidence_pct,
+        ),
         sell_probability=_sell_prob(p_sell),
         live_listing=_live(item_id),
     )
@@ -184,11 +192,12 @@ def test_save_recommendations_inserts_one_row_per_ranked_item():
             "scraped_at_unix",
             "query",
             "params",
-            "edge_usd",
+            "expected_profit_grailed",
+            "expected_profit_off_grailed",
+            "buy_cost",
             "p_sell",
             "q50",
-            "cost",
-            "confidence",
+            "confidence_pct",
             "valuation",
             "sell_probability",
             "live_listing",
@@ -208,7 +217,7 @@ def test_save_recommendations_noop_on_empty_ranked():
 def test_save_recommendations_extracts_typed_columns_correctly():
     fake = FakeSupabase()
     store = ListingStore(fake)
-    response = _response([_ranked("a", edge_usd=42.0, p_sell=0.73, confidence="high")])
+    response = _response([_ranked("a", expected_profit_grailed=42.0, p_sell=0.73, confidence_pct=88.0)])
 
     store.save_recommendations(response=response, params=SearchParams(query="guidi"))
 
@@ -216,11 +225,12 @@ def test_save_recommendations_extracts_typed_columns_correctly():
     assert row["item_id"] == "a"
     assert row["scraped_at_unix"] == 1700000999
     assert row["query"] == "guidi"
-    assert row["edge_usd"] == 42.0
+    assert row["expected_profit_grailed"] == 42.0
+    assert row["expected_profit_off_grailed"] == 72.0
+    assert row["buy_cost"] == 725.0
     assert row["p_sell"] == 0.73
     assert row["q50"] == 700.0
-    assert row["cost"] == 725.0
-    assert row["confidence"] == "high"
+    assert row["confidence_pct"] == 88.0
     assert row["valuation"]["extra_future_field"] == "ignored-by-store-but-survives-as-jsonb"
     assert row["sell_probability"]["extra_future_field"] == 1.23
     assert row["live_listing"]["id"] == "a"
