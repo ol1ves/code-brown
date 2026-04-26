@@ -1,5 +1,7 @@
 # Agent Run SSE Spec
 
+Archived 2026-04-26 with backend orchestration rewrite. Agent flow removed; new design pending.
+
 Status: approved implementation contract for `/agent/run` and isolated `agent-ui/`.
 
 ## Request

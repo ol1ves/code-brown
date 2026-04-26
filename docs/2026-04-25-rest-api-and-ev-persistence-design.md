@@ -1,5 +1,7 @@
 ## REST API Skeleton + EV Recommendation Persistence — Design Spec
 
+**Status:** partially superseded by [2026-04-26 backend orchestration rewrite](superpowers/specs/2026-04-26-backend-orchestration-rewrite-design.md). Field names (`edge_usd`, `cost`, `confidence`) changed.
+
 **Status:** approved, pending implementation plan
 **Owner:** Oliver
 **Last updated:** 2026-04-25
