@@ -1,22 +1,15 @@
 from __future__ import annotations
-
 import json
 
 from backend import cli
 from shared.models import (
-    HypeEvidence,
-    HypeResult,
     LiveListing,
     LivePrice,
     Recommendation,
-    RelatedQuery,
     ScrapeMetadata,
-    SearchParams,
     SearchResponse,
     Seller,
     SellerBadges,
-    TrendPoint,
-    TrendSeries,
 )
 
 
@@ -55,21 +48,24 @@ def _search_response() -> SearchResponse:
         item_id="1",
         scraped_at_unix=1700000000,
         query="guidi",
-        edge_usd=55.0,
+        expected_profit_grailed=55.0,
+        expected_profit_off_grailed=70.0,
+        buy_cost=725.0,
         p_sell=0.5,
         q50=700.0,
-        cost=725.0,
-        confidence="medium",
+        confidence_pct=62.0,
         valuation={
             "id": "1",
             "name": "788Z",
-            "cost": 725.0,
+            "buy_cost": 725.0,
             "dist": {"q10": 610.0, "q50": 700.0, "q90": 780.0},
             "metrics": {
                 "edge_usd": 55.0,
+                "expected_profit_grailed": 55.0,
+                "expected_profit_off_grailed": 70.0,
                 "percent_under": 7.59,
                 "effective_n": 3.0,
-                "confidence": "medium",
+                "confidence_percentage": 62.0,
             },
         },
         sell_probability={
@@ -96,73 +92,53 @@ def _search_response() -> SearchResponse:
     return SearchResponse(metadata=metadata, items=[rec])
 
 
-def _hype_result() -> HypeResult:
-    return HypeResult(
-        term="guidi",
-        score=0.8,
-        confidence="medium",
-        series_30d=TrendSeries(range="30d", points=[TrendPoint(day_unix=1700000000, intensity=20)]),
-        series_7d=TrendSeries(range="7d", points=[TrendPoint(day_unix=1700000000, intensity=22)]),
-        series_90d=TrendSeries(range="90d", points=[TrendPoint(day_unix=1700000000, intensity=15)]),
-        evidence=HypeEvidence(
-            related=[RelatedQuery(query="guidi boots", value=90, kind="top", is_breakout=False)]
-        ),
-        fetched_at_unix=1700000600,
-    )
+def test_search_subcommand_invokes_run_search(monkeypatch, capsys):
+    calls: list[tuple[str, int, int, bool]] = []
 
-
-def test_search_subcommand_invokes_orchestrator(monkeypatch, capsys):
-    calls: list[SearchParams] = []
-
-    async def _run_search_stub(params: SearchParams, *, persist: bool = True):
-        calls.append(params)
+    async def _run_search_stub(params, ctx, *, persist: bool = True):
+        calls.append((params.query, params.live_limit, params.sold_limit, persist))
         return _search_response()
 
-    monkeypatch.setattr(cli, "_prompt_params", lambda: SearchParams(query="guidi"))
-    monkeypatch.setattr(cli.orchestrator, "run_search", _run_search_stub)
-    monkeypatch.setattr("sys.argv", ["backend.cli", "search", "--no-persist"])
+    monkeypatch.setattr(cli, "run_search", _run_search_stub)
+    monkeypatch.setattr(cli, "configure_logging", lambda **kwargs: None)
+    monkeypatch.setattr(cli, "_wire_stores", lambda: None)
 
-    exit_code = cli.main()
+    exit_code = cli.main(["search", "margiela gats", "40", "40"])
 
     out = capsys.readouterr().out
     assert exit_code == 0
     assert len(calls) == 1
-    assert "metadata" in out
-    assert "[1/1]" in out
-    assert "Guidi 788Z" in out
-
-
-def test_hype_subcommand_invokes_orchestrator(monkeypatch, capsys):
-    calls: list[str] = []
-
-    async def _run_hype_stub(term: str):
-        calls.append(term)
-        return _hype_result()
-
-    monkeypatch.setattr(cli.orchestrator, "run_hype", _run_hype_stub)
-    monkeypatch.setattr("sys.argv", ["backend.cli", "hype", "guidi"])
-
-    exit_code = cli.main()
-
-    out = capsys.readouterr().out
-    assert exit_code == 0
-    assert calls == ["guidi"]
-    assert "term=guidi" in out
-    assert "score=" in out
+    assert calls[0] == ("margiela gats", 40, 40, True)
+    assert "TOP 20 RESULTS" in out
 
 
 def test_search_subcommand_json_flag_produces_valid_json(monkeypatch, capsys):
-    async def _run_search_stub(params: SearchParams, *, persist: bool = True):
+    async def _run_search_stub(params, ctx, *, persist: bool = True):
         return _search_response()
 
-    monkeypatch.setattr(cli, "_prompt_params", lambda: SearchParams(query="guidi"))
-    monkeypatch.setattr(cli.orchestrator, "run_search", _run_search_stub)
-    monkeypatch.setattr("sys.argv", ["backend.cli", "search", "--no-persist", "--json"])
+    monkeypatch.setattr(cli, "run_search", _run_search_stub)
+    monkeypatch.setattr(cli, "configure_logging", lambda **kwargs: None)
+    monkeypatch.setattr(cli, "_wire_stores", lambda: None)
 
-    exit_code = cli.main()
+    exit_code = cli.main(["search", "guidi", "20", "30", "--no-persist", "--json"])
 
     out = capsys.readouterr().out
     assert exit_code == 0
     payload = json.loads(out)
     assert "metadata" in payload
     assert "items" in payload
+
+
+def test_search_subcommand_no_persist_skips_store_wiring(monkeypatch):
+    called = {"wire": 0}
+
+    async def _run_search_stub(params, ctx, *, persist: bool = True):
+        return _search_response()
+
+    monkeypatch.setattr(cli, "run_search", _run_search_stub)
+    monkeypatch.setattr(cli, "configure_logging", lambda **kwargs: None)
+    monkeypatch.setattr(cli, "_wire_stores", lambda: called.__setitem__("wire", called["wire"] + 1))
+
+    exit_code = cli.main(["search", "guidi", "20", "30", "--no-persist"])
+    assert exit_code == 0
+    assert called["wire"] == 0
