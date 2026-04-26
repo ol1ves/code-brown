@@ -1,5 +1,3 @@
-from typing import Literal
-
 from pydantic import BaseModel, Field
 
 
@@ -106,38 +104,6 @@ class GrailedScrapeResult(BaseModel):
     results: list[GrailedResultRow] = Field(default_factory=list)
 
 
-class TrendPoint(BaseModel):
-    day_unix: int
-    intensity: int
-
-
-class TrendSeries(BaseModel):
-    range: Literal["7d", "30d", "90d"]
-    points: list[TrendPoint] = Field(default_factory=list)
-
-
-class RelatedQuery(BaseModel):
-    query: str
-    value: int
-    kind: Literal["rising", "top"]
-    is_breakout: bool
-
-
-class HypeEvidence(BaseModel):
-    related: list[RelatedQuery] = Field(default_factory=list)
-
-
-class HypeResult(BaseModel):
-    term: str
-    score: float | None
-    confidence: Literal["high", "medium", "low", "insufficient"]
-    series_30d: TrendSeries
-    series_7d: TrendSeries | None = None
-    series_90d: TrendSeries | None = None
-    evidence: HypeEvidence
-    fetched_at_unix: int
-
-
 class Recommendation(BaseModel):
     """One ranked recommendation. Single shape returned by both ``/search``
     and ``/recommendations`` so the frontend writes one renderer.
@@ -174,64 +140,3 @@ class SearchResponse(BaseModel):
 
     metadata: ScrapeMetadata
     items: list[Recommendation] = Field(default_factory=list)
-
-
-class AgentRunRequest(BaseModel):
-    intent_text: str = Field(min_length=1)
-    seed_params: SearchParams | None = None
-
-
-class CandidateQuery(BaseModel):
-    query: str
-    why: str
-    hype_term: str = ""
-
-
-class PlanPickedQuery(BaseModel):
-    query: str
-    momentum_pct: int
-    reasoning: str
-
-
-class PlanSkippedQuery(BaseModel):
-    query: str
-    reason: str
-
-
-class AgentPlan(BaseModel):
-    seed: str
-    hype: dict
-    picked: list[PlanPickedQuery] = Field(default_factory=list)
-    skipped: list[PlanSkippedQuery] = Field(default_factory=list)
-
-
-class SummaryHighlight(BaseModel):
-    item_id: str
-    why: str
-
-
-class AgentSummary(BaseModel):
-    text: str
-    highlights: list[SummaryHighlight] = Field(default_factory=list)
-
-
-class HypeProbeResult(BaseModel):
-    query: str
-    hype_term: str = ""
-    score: float | None
-    confidence: Literal["high", "medium", "low", "insufficient"]
-    momentum_pct: int
-    related: list[RelatedQuery] = Field(default_factory=list)
-    series_30d: TrendSeries | None = None
-    series_7d: TrendSeries | None = None
-    series_90d: TrendSeries | None = None
-
-
-class AgentRunState(BaseModel):
-    seed_params: SearchParams | None = None
-    intent_reasoning: str = ""
-    candidates: list[CandidateQuery] = Field(default_factory=list)
-    hype_results: dict[str, HypeProbeResult] = Field(default_factory=dict)
-    plan: AgentPlan
-    query_items: dict[str, list[Recommendation]] = Field(default_factory=dict)
-    query_errors: list[dict] = Field(default_factory=list)
