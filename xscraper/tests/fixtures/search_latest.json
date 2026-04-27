@@ -1,0 +1,51 @@
+{
+  "data": {
+    "search_by_raw_query": {
+      "search_timeline": {
+        "timeline": {
+          "instructions": [
+            {
+              "type": "TimelineAddEntries",
+              "entries": [
+                {
+                  "entryId": "tweet-1234567890123456789",
+                  "content": {
+                    "itemContent": {
+                      "tweet_results": {
+                        "result": {
+                          "rest_id": "1234567890123456789",
+                          "core": {
+                            "user_results": {
+                              "result": {
+                                "legacy": {
+                                  "screen_name": "testuser"
+                                }
+                              }
+                            }
+                          },
+                          "legacy": {
+                            "full_text": "hello world",
+                            "created_at": "Wed Apr 23 14:32:11 +0000 2026",
+                            "lang": "en",
+                            "favorite_count": 42,
+                            "retweet_count": 7,
+                            "reply_count": 3,
+                            "quote_count": 1
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "entryId": "cursor-bottom-foo",
+                  "content": {"cursorType": "Bottom", "value": "foo"}
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -72,3 +72,100 @@ def build_search_request(query: str, limit: int) -> tuple[str, dict[str, str]]:
         "features": json.dumps(FEATURES, separators=(",", ":")),
     }
     return url, params
+
+
+from datetime import datetime
+
+from xscraper.exceptions import XSchemaError
+from xscraper.models import Tweet
+
+# X's created_at format: "Wed Apr 23 14:32:11 +0000 2026" — non-RFC, day-of-week
+# first, year last. ``email.utils.parsedate_to_datetime`` does not handle this
+# reliably; strptime does.
+_X_TS_FORMAT = "%a %b %d %H:%M:%S %z %Y"
+
+
+def parse_search_response(raw: dict[str, Any]) -> list[Tweet]:
+    """Walk the SearchTimeline response → list[Tweet].
+
+    Raises XSchemaError if the shape is unrecognized OR if no tweet entries
+    are found (empty success would be indistinguishable from a broken parser).
+    """
+    try:
+        instructions = (
+            raw["data"]["search_by_raw_query"]["search_timeline"]["timeline"][
+                "instructions"
+            ]
+        )
+    except (KeyError, TypeError) as exc:
+        raise XSchemaError(
+            "SearchTimeline response missing data.search_by_raw_query."
+            "search_timeline.timeline.instructions — DOC_ID/features likely "
+            "rotated; refresh xscraper/graphql.py from DevTools"
+        ) from exc
+
+    if not isinstance(instructions, list):
+        raise XSchemaError("instructions is not a list")
+
+    tweets: list[Tweet] = []
+    for instruction in instructions:
+        if not isinstance(instruction, dict):
+            continue
+        entries = instruction.get("entries")
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            entry_id = entry.get("entryId", "")
+            if not isinstance(entry_id, str) or not entry_id.startswith("tweet-"):
+                continue
+            tweet = _entry_to_tweet(entry)
+            if tweet is not None:
+                tweets.append(tweet)
+
+    if not tweets:
+        raise XSchemaError(
+            "SearchTimeline response had instructions but no tweet entries — "
+            "DOC_ID/features may have rotated, or the query genuinely returned "
+            "nothing. Verify in a browser before treating this as success."
+        )
+    return tweets
+
+
+def _entry_to_tweet(entry: dict[str, Any]) -> Tweet | None:
+    """Pull a Tweet from a single ``tweet-*`` entry. Returns None if the
+    nested shape is missing fields (a single bad entry should not abort the
+    whole response — only a fully-empty result raises)."""
+    try:
+        result = entry["content"]["itemContent"]["tweet_results"]["result"]
+        legacy = result["legacy"]
+        user_legacy = result["core"]["user_results"]["result"]["legacy"]
+    except (KeyError, TypeError):
+        return None
+
+    rest_id = result.get("rest_id")
+    full_text = legacy.get("full_text")
+    created_at_raw = legacy.get("created_at")
+    handle = user_legacy.get("screen_name")
+    if not isinstance(rest_id, str) or not isinstance(full_text, str):
+        return None
+    if not isinstance(created_at_raw, str) or not isinstance(handle, str):
+        return None
+
+    try:
+        created_at = int(datetime.strptime(created_at_raw, _X_TS_FORMAT).timestamp())
+    except (TypeError, ValueError):
+        return None
+
+    return Tweet(
+        id=rest_id,
+        text=full_text,
+        created_at=created_at,
+        handle=handle,
+        lang=str(legacy.get("lang", "")),
+        like_count=int(legacy.get("favorite_count", 0)),
+        retweet_count=int(legacy.get("retweet_count", 0)),
+        reply_count=int(legacy.get("reply_count", 0)),
+        quote_count=int(legacy.get("quote_count", 0)),
+    )
