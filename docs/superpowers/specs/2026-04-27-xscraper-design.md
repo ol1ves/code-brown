@@ -226,7 +226,7 @@ Walk: `data.search_by_raw_query.search_timeline.timeline.instructions[]` → ent
 
 - `rest_id` → `Tweet.id`
 - `legacy.full_text` → `Tweet.text`
-- `legacy.created_at` (parsed via `email.utils.parsedate_to_datetime`) → `Tweet.created_at` unix int
+- `legacy.created_at` (parsed via `datetime.strptime` w/ format `"%a %b %d %H:%M:%S %z %Y"` — X's day-of-week-first, year-last format isn't RFC-2822 and `parsedate_to_datetime` does not handle it reliably) → `Tweet.created_at` unix int
 - `legacy.lang` → `Tweet.lang`
 - `legacy.favorite_count` → `Tweet.like_count`
 - `legacy.retweet_count` → `Tweet.retweet_count`
