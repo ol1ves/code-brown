@@ -57,15 +57,14 @@ async def fetch_search_timeline(
             ctx = await browser.new_context(storage_state=str(state_path))
             page = await ctx.new_page()
             
-            # Attach listener BEFORE goto() to avoid race
-            response_promise = page.wait_for_response(
-                lambda r: "SearchTimeline" in r.url and r.status == 200,
-                timeout=_RESPONSE_TIMEOUT_MS,
-            )
-            await page.goto(url, wait_until="domcontentloaded")
+            # Use the context manager (async with) for better reliability and cleaner code
+            async with page.expect_response(
+                lambda r: "SearchTimeline" in r.url and r.status == 200
+            ) as response_info:
+                await page.goto(url, wait_until="domcontentloaded")
             
             try:
-                response = await response_promise
+                response = await response_info.value
             except PlaywrightTimeoutError as exc:
                 current = page.url
                 if any(m in current for m in _LOGIN_URL_MARKERS):
