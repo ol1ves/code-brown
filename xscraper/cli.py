@@ -62,14 +62,15 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("query", help="Search term (quote multi-word).")
     p.add_argument(
         "--limit",
+        "-l",
         type=_positive_int_max(LIMIT_MAX),
         default=LIMIT_MAX,
         help=f"Number of tweets to return (1..{LIMIT_MAX}). Default {LIMIT_MAX}.",
     )
     p.add_argument(
-        "--json",
+        "--raw",
         action="store_true",
-        help="Emit JSON array instead of plain text.",
+        help="Emit raw JSON array instead of pretty text (default: pretty).",
     )
     return p
 
@@ -85,19 +86,51 @@ def _compact(n: int) -> str:
     return f"{v:.1f}M" if v < 10 else f"{int(v)}M"
 
 
+def _human_relative(ts_seconds: int) -> str:
+    now = datetime.now(tz=UTC)
+    then = datetime.fromtimestamp(ts_seconds, tz=UTC)
+    delta = now - then
+    secs = int(delta.total_seconds())
+    if secs < 60:
+        return f"{secs}s"
+    mins = secs // 60
+    if mins < 60:
+        return f"{mins}m"
+    hrs = mins // 60
+    if hrs < 24:
+        return f"{hrs}h"
+    days = hrs // 24
+    if days < 7:
+        return f"{days}d"
+    return then.strftime("%Y-%m-%d")
+
+
 def _render_plain(tweets: list[Tweet]) -> str:
+    # Pretty terminal rendering: bold author, dim metadata, wrapped text.
+    use_color = sys.stdout.isatty()
+
+    def _bold(s: str) -> str:
+        return f"\x1b[1m{s}\x1b[0m" if use_color else s
+
+    def _dim(s: str) -> str:
+        return f"\x1b[2m{s}\x1b[0m" if use_color else s
+
+    width = shutil.get_terminal_size((80, 20)).columns
+    wrap_width = max(20, width - 4)
+
     blocks: list[str] = []
     for t in tweets:
-        ts = datetime.fromtimestamp(t.created_at, tz=UTC).strftime("%Y-%m-%dT%H:%MZ")
-        header = (
-            f"@{t.handle} · "
-            f"{_compact(t.like_count)}❤ "
-            f"{_compact(t.retweet_count)}🔁 "
-            f"{_compact(t.reply_count)}💬 "
-            f"{_compact(t.quote_count)}❝ · "
-            f"{ts}"
+        rel = _human_relative(t.created_at)
+        meta = (
+            f"{_compact(t.like_count)}❤ { _compact(t.retweet_count)}🔁 "
+            f"{_compact(t.reply_count)}💬 { _compact(t.quote_count)}❝"
         )
-        blocks.append(f"{header}\n{t.text}")
+        header = f"{_bold('@' + t.handle)} {_dim('·')} {_dim(rel)} {_dim('·')} {_dim(t.lang)} {_dim('·')} {_dim(meta)}"
+
+        text = " ".join(t.text.splitlines())
+        wrapped = textwrap.fill(text, width=wrap_width)
+        blocks.append(f"{header}\n{wrapped}")
+
     return "\n\n".join(blocks)
 
 
