@@ -68,6 +68,7 @@ def _build_search_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--json", action="store_true", help="render as JSON")
     parser.add_argument("--headed", action="store_true", help="show browser window")
+    parser.add_argument("-k", "--keep-alive", default=False, action="store_true", help="keep browser alive after search")
     return parser
 
 
@@ -114,7 +115,7 @@ def _render_json(tweets: list[Tweet]) -> str:
 
 async def _run_search(args: argparse.Namespace) -> int:
     """Execute search and render output."""
-    tweets = await search(args.query, args.limit, headed=args.headed)
+    tweets = await search(args.query, args.limit, headed=args.headed, keep_alive=args.keep_alive)
     if args.json:
         print(_render_json(tweets))
     else:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 
@@ -13,20 +14,26 @@ from xscraper.models import Tweet
 log = logging.getLogger("xscraper.scraper")
 
 
-async def search(query: str, limit: int, *, headed: bool = False) -> list[Tweet]:
+async def search(query: str, limit: int, *, headed: bool = False, keep_alive: bool = False) -> list[Tweet]:
     """Run one Latest-tab search and return up to ``limit`` Tweet objects."""
     cfg = load_config()
     log.info("search start query=%r limit=%d", query, limit)
     started = time.monotonic()
 
-    raw = await fetch_search_timeline(
+    async with fetch_search_timeline(
         query, state_path=cfg.state_path, headed=headed
-    )
-    tweets = parse_search_response(raw)
-    sliced = tweets[:limit]
+    ) as raw:
+        tweets = parse_search_response(raw)
+        sliced = tweets[:limit]
 
-    elapsed_ms = int((time.monotonic() - started) * 1000)
-    log.info(
-        "search done count=%d elapsed_ms=%d", len(sliced), elapsed_ms
-    )
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        log.info("search done count=%d elapsed_ms=%d", len(sliced), elapsed_ms)
+
+        if keep_alive:
+            log.info("keep_alive: browser open press any key close")
+            try:
+                input()
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                pass
+
     return sliced

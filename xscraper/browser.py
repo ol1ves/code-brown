@@ -10,6 +10,7 @@ itself. Knows nothing about Tweet or any GraphQL shape.
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import quote
 
@@ -25,19 +26,14 @@ _RESPONSE_TIMEOUT_MS = 30_000
 _LOGIN_URL_MARKERS = ("/login", "/i/flow/login")
 
 
+@asynccontextmanager
 async def fetch_search_timeline(
     query: str, *, state_path: Path, headed: bool = False
-) -> dict:
-    """Navigate to Latest search and return first SearchTimeline JSON.
-    
-    Args:
-        query: Search term
-        state_path: Path to patchright storage_state.json
-        headed: Show browser window (default headless)
-    
-    Returns:
-        Raw JSON dict from SearchTimeline response
-    
+):
+    """Navigate to Latest search and yield first SearchTimeline JSON.
+
+    Browser stays open for the duration of the async with block, then closes.
+
     Raises:
         XConfigError: state_path doesn't exist
         XAuthError: Login wall hit or login timeout
@@ -47,35 +43,34 @@ async def fetch_search_timeline(
         raise XConfigError(
             f"{state_path} not found — run `python -m xscraper login` first"
         )
-    
+
     url = _SEARCH_URL_TEMPLATE.format(q=quote(query, safe=""))
     log.info("launching chromium headed=%s", headed)
-    
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=not headed)
         try:
             ctx = await browser.new_context(storage_state=str(state_path))
             page = await ctx.new_page()
-            
-            # Use the context manager (async with) for better reliability and cleaner code
+
             async with page.expect_response(
-                lambda r: "SearchTimeline" in r.url and r.status == 200
+                lambda r: "SearchTimeline" in r.url and r.status == 200,
+                timeout=_RESPONSE_TIMEOUT_MS,
             ) as response_info:
                 await page.goto(url, wait_until="domcontentloaded")
-            
-            try:
-                response = await response_info.value
-            except PlaywrightTimeoutError as exc:
-                current = page.url
-                if any(m in current for m in _LOGIN_URL_MARKERS):
-                    raise XAuthError(
-                        "state.json rejected — re-run "
-                        "`python -m xscraper login`"
+                try:
+                    response = await response_info.value
+                except PlaywrightTimeoutError as exc:
+                    current = page.url
+                    if any(m in current for m in _LOGIN_URL_MARKERS):
+                        raise XAuthError(
+                            "state.json rejected — re-run "
+                            "`python -m xscraper login`"
+                        ) from exc
+                    raise XTimeoutError(
+                        "SearchTimeline response never fired within 30s"
                     ) from exc
-                raise XTimeoutError(
-                    "SearchTimeline response never fired within 30s"
-                ) from exc
-            
-            return await response.json()
+
+            yield await response.json()  # browser stays open until caller exits
         finally:
             await browser.close()
