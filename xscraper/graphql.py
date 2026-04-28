@@ -68,8 +68,8 @@ def _entry_to_tweet(entry: Any) -> Tweet | None:
     try:
         result = entry["content"]["itemContent"]["tweet_results"]["result"]
         legacy = result["legacy"]
-        user_legacy = result["core"]["user_results"]["result"]["legacy"]
-        
+        user_core = result["core"]["user_results"]["result"]["core"]
+        print(user_core, "\n") 
         return Tweet(
             id=str(result["rest_id"]),
             text=legacy["full_text"],
@@ -78,7 +78,7 @@ def _entry_to_tweet(entry: Any) -> Tweet | None:
                     legacy["created_at"], _X_TS_FORMAT
                 ).timestamp()
             ),
-            handle=user_legacy["screen_name"],
+            handle=user_core["screen_name"],
             lang=legacy.get("lang", "") or "",
             like_count=int(legacy["favorite_count"]),
             retweet_count=int(legacy["retweet_count"]),
