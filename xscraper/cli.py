@@ -22,6 +22,8 @@ import logging
 import sys
 from dataclasses import asdict
 from datetime import UTC, datetime
+import shutil
+import textwrap
 
 import httpx
 
@@ -154,6 +156,9 @@ def _configure_logging() -> None:
     root = logging.getLogger()
     root.addHandler(handler)
     root.setLevel(logging.INFO)
+    # Suppress very verbose HTTP client logs by default; keep our own INFO.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -183,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"network error: {e}", file=sys.stderr)
         return 6
 
-    if args.json:
+    if args.raw:
         print(_render_json(tweets))
     else:
         print(_render_plain(tweets))
