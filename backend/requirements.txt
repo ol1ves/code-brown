@@ -37,6 +37,7 @@ multidict==6.7.1
 numpy==2.4.4
 packaging==26.2
 pandas==3.0.2
+patchright
 pluggy==1.6.0
 postgrest==2.29.0
 propcache==0.4.1
