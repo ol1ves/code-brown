@@ -1,0 +1,70 @@
+{
+  "data": {
+    "search_by_raw_query": {
+      "search_timeline": {
+        "timeline": {
+          "instructions": [
+            {
+              "type": "TimelineTweets",
+              "entries": [
+                {
+                  "entryId": "tweet-1234567890123456789",
+                  "sortIndex": "1234567890123456789",
+                  "content": {
+                    "entryType": "TimelineTweet",
+                    "__typename": "TimelineTweet",
+                    "itemContent": {
+                      "itemType": "TimelineTweet",
+                      "__typename": "TimelineTweet",
+                      "tweet_results": {
+                        "result": {
+                          "__typename": "Tweet",
+                          "rest_id": "1234567890123456789",
+                          "core": {
+                            "user_results": {
+                              "result": {
+                                "__typename": "User",
+                                "id": "VXNlcjoxMjM0NTY3ODk=",
+                                "rest_id": "123456789",
+                                "legacy": {
+                                  "screen_name": "testuser"
+                                }
+                              }
+                            }
+                          },
+                          "legacy": {
+                            "created_at": "Wed Apr 23 14:32:11 +0000 2026",
+                            "full_text": "hello world",
+                            "lang": "en",
+                            "favorite_count": 42,
+                            "retweet_count": 7,
+                            "reply_count": 3,
+                            "quote_count": 1
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "entryId": "cursor-bottom-1234567890123456789",
+                  "sortIndex": "1234567890123456788",
+                  "content": {
+                    "entryType": "TimelineTimelineItem",
+                    "__typename": "TimelineTimelineItem",
+                    "itemContent": {
+                      "itemType": "TimelineCursor",
+                      "__typename": "TimelineCursor",
+                      "value": "DAACCgABF_KKQAABF_KKQAABsz4AAwAAAAIDAAJAAAAAA",
+                      "cursorType": "Bottom"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+}

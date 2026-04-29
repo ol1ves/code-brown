@@ -65,4 +65,9 @@ tmp/
 temp/
 *.sqlite
 *.sqlite3
+
+# xscraper session state (patchright storage_state)
+xscraper/state.json
+xscraper/state.*.json
+
 .claude/
