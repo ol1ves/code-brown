@@ -1,77 +1,93 @@
-# code-brown backend
+# groogled
 
-Grailed arbitrage backend with a staged search pipeline and structured logs.
+Grailed arbitrage backend — staged search pipeline, structured logs, browser-based X scraper.
 
-## 1. Quick start
+## Packages
+
+| Directory  | Purpose |
+|------------|---------|
+| `backend/` | FastAPI app — search pipeline, recommendations API |
+| `scraper/` | Grailed HTTP scraper (Algolia + listings) |
+| `xscraper/` | X (Twitter) scraper via Patchright browser automation |
+| `ev/`      | Expected-value and sell-probability models |
+| `shared/`  | Shared models and Supabase store |
+
+## Setup
+
+Requires [uv](https://docs.astral.sh/uv/).
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r backend/requirements.txt
-cp .env.example .env
-uvicorn backend.main:app --reload --port 8000
+uv sync
+cp .env.example .env          # fill in secrets
+```
+
+Apply DB migrations before first run:
+
+```bash
+# supabase/migrations/ — run against your project
+```
+
+## Running
+
+```bash
+uv run uvicorn backend.main:app --reload --port 8000
 ```
 
 Optional human-readable logs:
 
 ```bash
-LOG_FORMAT=text uvicorn backend.main:app --reload --port 8000
+LOG_FORMAT=text uv run uvicorn backend.main:app --reload --port 8000
 ```
 
-## 2. Environment
+## Environment variables
 
-Required:
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `API_KEY` | ✓ | Auth token for all non-health routes |
+| `SUPABASE_URL` | ✓ | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | ✓ | Supabase service role key |
+| `ALGOLIA_API_KEY` | ✓ | Algolia search API key |
 
-- `API_KEY`
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `ALGOLIA_API_KEY`
-
-Apply migrations in `supabase/migrations/` before using `/recommendations`.
-
-## 3. API
+## API
 
 All routes except `/health` require `Authorization: Bearer $API_KEY`.
 
-- `GET /health`
-- `POST /search`
-- `GET /recommendations?limit=50`
+| Method | Route | Description |
+|--------|-------|-------------|
+| `GET` | `/health` | Liveness check |
+| `POST` | `/search` | Run search pipeline |
+| `GET` | `/recommendations?limit=50` | Fetch stored recommendations |
 
-Removed routes:
-
-- `GET /hype/{term}`
-- `POST /agent/run`
-
-## 4. Recommendation shape
-
-Top-level fields now include:
-
-- `expected_profit_grailed`
-- `expected_profit_off_grailed`
-- `buy_cost`
-- `p_sell`
-- `q50`
-- `confidence_pct`
-- `valuation`
-- `sell_probability`
-- `live_listing`
-
-Removed from top-level:
-
-- `edge_usd`
-- `cost`
-- `confidence`
-
-## 5. CLI
+## CLI
 
 ```bash
-python -m backend.cli search "<query>" <live_limit> <sold_limit> [--no-persist] [--json] [--no-color]
+uv run python -m backend.cli search "<query>" <live_limit> <sold_limit> [--no-persist] [--json] [--no-color]
 ```
 
-Examples:
+Examples (run from repo root):
 
 ```bash
-python -m backend.cli search "margiela gats" 40 40
-python -m backend.cli search guidi 20 30 --no-persist
-python -m backend.cli search "carol christian poell" 10 10 --json
+uv run python -m backend.cli search "margiela gats" 40 40
+uv run python -m backend.cli search guidi 20 30 --no-persist
+uv run python -m backend.cli search "carol christian poell" 10 10 --json
 ```
+
+## Tests
+
+```bash
+uv run pytest
+```
+
+## Recommendation fields
+
+| Field | Description |
+|-------|-------------|
+| `expected_profit_grailed` | Expected profit selling on Grailed |
+| `expected_profit_off_grailed` | Expected profit selling elsewhere |
+| `buy_cost` | Recommended buy price |
+| `p_sell` | Probability of sale |
+| `q50` | Median comparable sale price |
+| `confidence_pct` | Model confidence |
+| `valuation` | Estimated fair value |
+| `sell_probability` | Raw sell probability |
+| `live_listing` | Current live listing data |
