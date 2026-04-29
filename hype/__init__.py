@@ -1,2 +1,0 @@
-"""Hype scoring package."""
-
