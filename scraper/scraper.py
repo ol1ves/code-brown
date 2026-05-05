@@ -1,7 +1,3 @@
-"""Grailed scraper. Backend wires a ``ListingStore`` via ``set_store`` at boot;
-``scrape`` accepts ``SearchParams`` and returns a structured ``GrailedScrapeResult``.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -30,7 +26,7 @@ from shared.models import (
     GrailedResultRow,
     GrailedScrapeResult,
     ScrapeMetadata,
-    SearchParams,
+    SearchParams, 
     SoldListing,
 )
 

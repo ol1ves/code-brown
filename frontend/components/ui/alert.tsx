@@ -17,7 +17,7 @@ const alertVariants = cva(
       variant: 'default',
     },
   },
-)
+
 
 function Alert({
   className,

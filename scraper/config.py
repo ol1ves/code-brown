@@ -83,6 +83,12 @@ ALGOLIA_FACETS = [
 ]
 
 DEPARTMENT_VALUES = ["menswear", "womenswear"]
+
+GENDER_VALUES = [
+    "menswear",
+    "womenswear"
+]
+
 CATEGORY_VALUES = [
     "tops",
     "bottoms",
@@ -90,23 +96,78 @@ CATEGORY_VALUES = [
     "footwear",
     "accessories",
     "tailoring",
-    "womens_tops",
-    "womens_bottoms",
-    "womens_outerwear",
-    "womens_footwear",
-    "womens_dresses",
-    "womens_accessories",
-    "womens_bags_luggage",
-    "womens_jewelry",
+    "bags & luggage",
+    "jewelry"
 ]
-CONDITION_VALUES = [
-    "is_new",
-    "is_gently_used",
-    "is_used",
-    "is_worn",
-    "is_not_specified",
+
+TOPS_VALUES = [
+    "long sleeve t-shirts",
+    "polos",
+    "shirts",
+    "short sleeve t-shirts",
+    "sweaters & knitwear",
+    "sweatshirts & hoodies",
+    "tank tops & sleeveless",
+    "jerseys"
 ]
-LOCATION_VALUES = [
+
+BOTTOMS_VALUES = [
+    "casual pants",
+    "cropped pants",
+    "denim",
+    "leggings",
+    "overalls & sumpsuits",
+    "shorts",
+    "sweatpants & soggers",
+    "swimwear"
+]
+
+OUTERWEAR_VALUES = [
+    "bombers",
+    "cloaks and capes",
+    "denim jackets",
+    "heavy coats",
+    "leather jackets",
+    "light jackets",
+    "parkas",
+    "raincoats",
+    "vests"
+]
+
+FOOTWEAR_VALUES = [
+    "boots",
+    "casual leather shoes",
+    "formal shoes",
+    "hi-top sneakers",
+    "low-top sneakers",
+    "sandals",
+    "slip ons"
+]
+
+ACCESSORIES_VALUES = [
+    "bags and luggage", 
+    "belts",
+    "glasses",
+    "gloves and scarves",
+    "hats",
+    "jewelry and watches",
+    "wallets",
+    "miscellaneous",
+    "socks and underwear",
+    "sunglasses",
+    "ties and pocketsquares"
+]
+
+TAILORING_VALUES = [
+    "blazers",
+    "formal shirting",
+    "formal trousers",
+    "suits",
+    "tuxedos",
+    "vests"
+]
+
+SELLER_LOCATION_VALUES = [
     "United States",
     "Europe",
     "Asia",
@@ -115,4 +176,13 @@ LOCATION_VALUES = [
     "Australia/NZ",
     "Other",
 ]
+
+CONDITION_VALUES = [
+    "is_new",
+    "is_gently_used",
+    "is_used",
+    "is_worn",
+    "is_not_specified",
+]
+
 STRATA_VALUES = ["basic", "grailed", "hype", "sartorial"]
